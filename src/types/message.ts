@@ -8,10 +8,6 @@ export class JoinMessage {
 
 export class SyncMessage {
 
-    room: string;
-    sessionId: string;
-    localVersion: number;
-    serverVersion: number;
-    edits: Edit[];
+    constructor(public room: string, public sessionId: string, public lastReceivedVersion: number, public edits: Edit[]) {}
 
 }

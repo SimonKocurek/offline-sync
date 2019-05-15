@@ -2,7 +2,7 @@ import {DiffPatcher, Config} from "jsondiffpatch";
 import Command from "./types/command";
 import LocalStore from "./offline_store/client_offline_store";
 import Document from "./types/document";
-import { fetchJson } from "./util";
+import { fetchJson, clone } from "./util";
 import { JoinMessage, SyncMessage } from "./types/message";
 import Edit from "./types/edit";
 
@@ -51,22 +51,25 @@ class Client {
     /**
      * Initializes the sync session
      */
-    public initialize() {
+    public async initialize() {
         this.syncing = true;
 
         try {
             if (this.offlineStore.hasData()) {
-                this.restoreOldConnection();
+                await this.restoreOldConnection();
+
             } else {
-                this.createNewConnection();
+                await this.createNewConnection();
             }
 
             this.finishInitialization();
 
         } catch (error) {
-            this.syncing = false;
-            // TODO start pinging :D
+            console.error(error);
+            this.startOfflineMode();
         }
+
+        this.syncing = false;
     }
 
     /**
@@ -92,7 +95,6 @@ class Client {
      * Mark the current client as initialized
      */
     private finishInitialization(): void {
-        this.syncing = false;
         this.initialized = true;
         this.timeSinceResponse = Date.now();
     }
@@ -115,7 +117,6 @@ class Client {
         }
     }
 
-
     /**
      * Starts a sync cycle.
      */
@@ -129,25 +130,36 @@ class Client {
 
         if (diff) {
             // 2) add the difference to the local edits stack
-            this.doc.edits.push(new Edit(localVersion, diff));
+            this.doc.edits.push(new Edit(localVersion, clone(diff)));
             this.doc.localVersion++;
+
+            // 3) apply the patch to the local shadow
+            this.diffPatcher.patch(this.doc.shadow, clone(diff));
         }
 
-        // 3) apply the patch to the local shadow
-        this.diffPatcher.patch(this.doc.shadow, this.diffPatcher.clone(diff));
-
         // 4) send the edits to the server
-        let syncMessage = new SyncMessage();
+        let syncMessage = new SyncMessage(this.doc.room, this.doc.sessionId, this.doc.remoteVersion, this.doc.edits);
+        await this.sendSyncMessage(syncMessage);
+        this.syncing = false;
+    }
 
-        let response = await fetchJson(Command.SYNC, syncMessage);
+    private async sendSyncMessage(syncMessage: SyncMessage): Promise<void> {
+        try {
+            let response = await fetchJson(Command.SYNC, syncMessage) as SyncMessage;
+            this.timeSinceResponse = Date.now();
+            this.applyServerEdits(response);
+
+        } catch (error) {
+            console.error(error);
+            this.startOfflineMode();
+        }
     }
 
     /**
      * Applies all edits from the server
-     * @param  {Object} serverEdits The edits message
-     * @private
+     * @param syncMessage The edits message
      */
-    _applyServerEdits(serverEdits) {
+    private applyServerEdits(syncMessage: SyncMessage): void {
         this.timeSinceResponse = Date.now();
 
         if (serverEdits && serverEdits.localVersion === this.doc.localVersion) {
@@ -201,9 +213,16 @@ class Client {
         }
     }
 
-// TODO: decide on better implementation (Module rather than methods?
-    startOfflineMode(editMessage) {
-        // TODO: store this.doc and what else is needed
+    /**
+     * 
+     */
+    private startOfflineMode(): void {
+        this.offline = true;
+        this.offlineStore.storeData(this.doc);
+
+        setInterval(() => {
+
+        }, 1000);
     }
 
 // TODO implement
@@ -221,10 +240,10 @@ class Client {
         //  - stop pinging
     }
 
-    _performMerge() {
-        this.socket.emit(syncWithServer, editMessage, this.applyServerEdits);
-    }
-
+    /**
+     * 
+     * @param command 
+     */
     private endpointUrl(command: Command): string {
         return `${this.synchronizationUrl}/${command}`;
     }

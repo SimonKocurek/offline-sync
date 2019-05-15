@@ -3,7 +3,8 @@ import { Config, DiffPatcher } from "jsondiffpatch";
 import Endpoint from "./types/endpoint";
 import Command from "./types/command";
 import Document from "./types/document";
-import { JoinMessage } from "./types/message";
+import { JoinMessage, SyncMessage } from "./types/message";
+import { clone } from "./util";
 
 class Server {
 
@@ -31,8 +32,8 @@ class Server {
      */
     public generatedEndpoints(): Endpoint[] {
         return [
-            new Endpoint(this.endpointUrl(Command.JOIN), async (requestBody) => this.joinConnection(requestBody)),
-
+            new Endpoint(this.endpointUrl(Command.JOIN), async (requestBody) => this.joinConnection(requestBody as JoinMessage)),
+            new Endpoint(this.endpointUrl(Command.SYNC), async (requestBody) => this.sync(requestBody as SyncMessage)),
         ]
     }
 
@@ -40,10 +41,7 @@ class Server {
      * Joins a connection to a room and send the initial data
      * @param requestBody object with room identifier, or session Id
      */
-    private async joinConnection(requestBody: object): Promise<object> {
-        let payload = requestBody as JoinMessage;
-        let room = this.getRoom(payload.room);
-
+    private async joinConnection(payload: JoinMessage): Promise<Document | object> {
         if (payload.sessionId) {
             // Simple acknowledgment
             return {};
@@ -51,115 +49,84 @@ class Server {
         } else {
             // Set up client data
             let sessionId = this.generateSessionId();
-            let clientDocument = new Document(payload.room, sessionId);
-            clientDocument.localCopy = this.diffPatcher.clone(room);
-            clientDocument.shadow = this.diffPatcher.clone(room);
+            let room = this.getRoom(payload.room);
+
+            let clientDocument = new Document(payload.room, sessionId, room);
+            this.persistenceAdapter.storeData(sessionId, clientDocument);
 
             // send the generated data
+            delete clientDocument.backup; // Backup is only needed on the server
+            delete clientDocument.backupVersion;
             return clientDocument;
         }
     }
 
     /**
-     * Applies the sent edits to the shadow and the server copy, notifies all connected sockets and saves a snapshot
-     * @param  {Socket} connection   The connection that sent the edits
-     * @param  {Object} editMessage  The message containing all edits
-     * @param  {Function} sendToClient The callback that sends the server changes back to the client
+     * Applies the sent edits to the shadow and the server copy and returns new diffs
      */
-    async _receiveEdit(connection, editMessage, sendToClient) {
+    async sync(payload: SyncMessage): Promise<SyncMessage> {
         // -1) The algorithm actually says we should use a checksum here, I don't think that's necessary
         // 0) get the relevant doc
-        let roomData = this._getRoomData(editMessage.room);
-        let clientData = await this._getData(editMessage.sessionId);
+        let state = this.persistenceAdapter.getRoom(payload.room);
+        let clientData = this.persistenceAdapter.getData(payload.sessionId);
 
+        if (!clientData) {
+            throw new Error("Invalid session id received");
+        }
 
-        this._getData(editMessage.room, (err, doc) => {
-            // 0.a) get the client versions
-            let clientDoc = doc.clientVersions[connection.id];
-
-            // no client doc could be found, client needs to re-auth
-            if (err || !clientDoc) {
-                connection.emit(Commands.ERROR, 'Need to re-authenticate!');
-                return;
+        // 2) check the version numbers for lost packets
+        if (payload.lastReceivedVersion !== clientData.localVersion) {
+            // Something has gone wrong, try performing a rollback
+            if (payload.lastReceivedVersion === clientData.backupVersion) {
+                this.performRoolback(clientData);
+            } else {
+                throw new Error("Sync message versions invalid");
             }
+        }
 
-            // when the versions match, remove old edits stack
-            if (editMessage.serverVersion === clientDoc.shadow.serverVersion) {
-                clientDoc.edits = [];
-            }
+        // 3) remove all confirmed edits
+        let edits = clientData.edits;
+        while (edits.length > 0 && clientData.remoteVersion >= edits[0].basedOnVersion) {
+            clientData.edits.shift();
+        }
 
-            // 1) iterate over all edits
-            editMessage.edits.forEach((edit) => {
-                // 2) check the version numbers
-                if (edit.serverVersion === clientDoc.shadow.serverVersion &&
-                    edit.localVersion === clientDoc.shadow.localVersion) {
-                    // versions match
-                    // backup! TODO: is this the right place to do that?
-                    clientDoc.backup.doc = this.diffPatcher.clone(clientDoc.shadow.doc);
+        // 4) apply all valid edits
+        for (let edit of payload.edits) {
+            this.pefrormBackup(clientData);
 
-                    // 3) patch the shadow
-                    // var snapshot = utils.deepCopy(clientDoc.shadow.doc);
-                    this.diffPatcher.patch(clientDoc.shadow.doc, this.diffPatcher.clone(edit.diff));
-                    // clientDoc.shadow.doc = snapshot;
+            // 5) apply the edit
+            this.diffPatcher.patch(clientData.shadow, clone(edit.diff));
+            this.diffPatcher.patch(clientData.localCopy, clone(edit.diff));
 
-                    // apply the patch to the server's document
-                    // snapshot = utils.deepCopy(doc.serverCopy);
-                    this.diffPatcher.patch(doc.serverCopy, this.diffPatcher.clone(edit.diff));
-                    // doc.serverCopy = snapshot;
+            // Mark the edit version as the current one
+            clientData.remoteVersion = edit.basedOnVersion;
+        }
 
-                    // 3.a) increase the version number for the shadow if diff not empty
-                    if (!isEmpty(edit.diff)) {
-                        clientDoc.shadow.localVersion++;
-                    }
-                } else {
-                    // TODO: implement backup workflow
-                    // has a low priority since `packets are not lost` - but don't quote me on that :P
-                    console.log('error', 'patch rejected!!', edit.serverVersion, '->', clientDoc.shadow.serverVersion, ':',
-                        edit.localVersion, '->', clientDoc.shadow.localVersion);
-                }
-            });
+        // 6) save a snapshot of the document
+        this.persistenceAdapter.storeData(payload.sessionId, clientData);
 
-            // 4) save a snapshot of the document
-            this.saveSnapshot(editMessage.room);
-
-            // notify all sockets about the update, if not empty
-            if (editMessage.edits.length > 0) {
-                this.transport.to(editMessage.room).emit(Commands.SYNC, connection.id);
-            }
-
-            this.sendServerChanges(doc, clientDoc, sendToClient);
-        });
+        // 7) respond with current diffs
+        this.sendServerChanges(doc, clientDoc, sendToClient);
     }
 
-// TODO send diff to the server that probably never got there
-    saveSnapshot(room) {
-        let noRequestInProgress = !this.saveRequests[room],
-            checkQueueAndSaveAgain = () => {
-                // if another save request is in the queue, save again
-                let anotherRequestScheduled = this.saveQueue[room] === true;
-                this.saveRequests[room] = false;
-                if (anotherRequestScheduled) {
-                    this.saveQueue[room] = false;
-                    this.saveSnapshot(room);
-                }
-            };
+    /**
+     * Rollback using backup
+     */
+    private performRoolback(clientData: Document): void {
+        // Restore shadow to the same version as on the client
+        clientData.localVersion = clientData.backupVersion;
+        clientData.localCopy = clone(clientData.backup);
+        // All edits that were created based on the old shadow need to be removed
+        // A new one containing all their diffs can be created
+        clientData.edits = [];
+    }
 
-        // only save if no save going on at the moment
-        if (noRequestInProgress) {
-            this.saveRequests[room] = true;
-            // get data for saving
-            this.getData(room, (err, data) => {
-                // store data
-                if (!err && data) {
-                    this.persistenceAdapter.storeData(room, data.serverCopy, checkQueueAndSaveAgain);
-                } else {
-                    checkQueueAndSaveAgain();
-                }
-            });
-        } else {
-            // schedule a new save request
-            this.saveQueue[room] = true;
-        }
+    /**
+     * Saves the current shadow, before changing it
+     */
+    private pefrormBackup(clientData: Document): void {
+        clientData.backup = clone(clientData.shadow);
+        clientData.backupVersion = clientData.localVersion;
     }
 
     sendServerChanges(doc, clientDoc, send) {
@@ -189,12 +156,14 @@ class Server {
         });
     }
 
-    private getRoom(roomId: string): object {
+    private getRoom(roomId: string): State {
+        let generatedState = new State();
+
         if (!this.persistenceAdapter.hasRoom(roomId)) {
-            this.persistenceAdapter.storeRoom(roomId, {});
+            this.persistenceAdapter.storeRoom(roomId, generatedState);
         }
 
-        return this.persistenceAdapter.getRoom(roomId) || {};
+        return this.persistenceAdapter.getRoom(roomId) || generatedState;
     }
 
     private endpointUrl(command: Command): string {
