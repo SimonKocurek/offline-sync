@@ -1,0 +1,25 @@
+{
+  "name": "offline-sync",
+  "version": "1.0.0",
+  "description": "Real time collaborative editing for JSON objects with offline mode",
+  "main": "index.js",
+  "dependencies": {
+    "jsondiffpatch": "^0.3.11"
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SimonKocurek/offline-sync.git"
+  },
+  "author": "Simon Kocurek",
+  "license": "MIT",
+  "keywords": [
+    "collaboration",
+    "synchronization",
+    "differential synchronization",
+    "server",
+    "client",
+    "realtime",
+    "offline"
+  ]
+}
