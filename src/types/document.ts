@@ -1,3 +1,5 @@
+import Edit from "./edit";
+
 class Document {
 
     constructor(public room: string, public sessionId: string) {}
@@ -6,7 +8,7 @@ class Document {
     serverVersion: number = 0;
     shadow: object = {};
     localCopy: object = {};
-    edits = [];
+    edits: Edit[] = [];
 
 }
 

@@ -1,4 +1,4 @@
-import Document from "./document";
+import Document from "../types/document";
 
 interface DataAdapter {
 
@@ -13,6 +13,8 @@ interface DataAdapter {
     getRoom(id: string): object |null;
 
     storeRoom(id: string, document: object): void;
+
+    generateSessionId?(): string;
 
 }
 

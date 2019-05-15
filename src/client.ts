@@ -1,8 +1,10 @@
 import {DiffPatcher, Config} from "jsondiffpatch";
-import Command from "./command";
-import LocalStore from "./client_offline_store";
-import Document from "./document";
-import { fetchAsync } from "./util";
+import Command from "./types/command";
+import LocalStore from "./offline_store/client_offline_store";
+import Document from "./types/document";
+import { fetchJson } from "./util";
+import { JoinMessage, SyncMessage } from "./types/message";
+import Edit from "./types/edit";
 
 class Client {
 
@@ -12,14 +14,11 @@ class Client {
     // Connection and data was initialized
     private initialized: boolean = false;
 
-    // Request is waiting to be sent to the server
-    private scheduled: boolean = false;
-
     // Connection failed and offline mode was enabled
     private offline: boolean = false;
 
     // Last time a response from server was returned, used for figuring out, if manual merge is needed
-    private timeSinceResponse: Date;
+    private timeSinceResponse: number;
 
     // Document itself
     private doc: Document;
@@ -41,7 +40,7 @@ class Client {
      * Get the data
      * @return client edited state
      */
-    public getData(): object {
+    public getData(): object | null {
         if (!this.doc) {
             return null;
         }
@@ -55,161 +54,92 @@ class Client {
     public initialize() {
         this.syncing = true;
 
-        if (this.offlineStore.hasData()) {
-            this.restoreOldConnection();
-        } else {
-            this.createNewConnection();
+        try {
+            if (this.offlineStore.hasData()) {
+                this.restoreOldConnection();
+            } else {
+                this.createNewConnection();
+            }
+
+            this.finishInitialization();
+
+        } catch (error) {
+            this.syncing = false;
+            // TODO start pinging :D
         }
     }
 
     /**
      * Restores old connection stored in the offline Store
      */
-    private restoreOldConnection(): void {
-        this.offlineStore.getData();
-        // TODO
-        this.socket.emit(Commands.JOIN, {room: this.room,}, (response) => this._onConnected(response));
+    private async restoreOldConnection(): Promise<void> {
+        let data = this.offlineStore.getData();
+        this.doc = data || this.doc;
+
+        // Await simple ack
+        await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room, this.doc.sessionId));
     }
 
     /**
      * Starts a new connection with fresh data
      */
     private async createNewConnection(): Promise<void> {
-        let response = await fetchAsync(Command.JOIN, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({room: this.room})
-        });
-
-        
+        let response = await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as Document;
+        this.doc = response;
     }
 
     /**
-     * Sets up the local version and listens to server updates
-     * Will notify the `onConnected` callback.
-     * @param {Object} serverResponse The initial state from the server
-     * @private
+     * Mark the current client as initialized
      */
-    _onConnected(serverResponse) {
-        this.doc = new Document(room, '');
-
-        // client is not syncing anymore and is initialized
+    private finishInitialization(): void {
         this.syncing = false;
         this.initialized = true;
         this.timeSinceResponse = Date.now();
-
-        // set up shadow doc, local doc and initial server version
-        this.doc.sessionId = serverResponse.sessionId;
-        this.doc.localCopy = serverResponse.state;
-        // IMPORTANT: the shadow needs to be a deep copy of the initial version
-        // because otherwise changes to the local object will also result in changes
-        // to the shadow object because they are pointing to the same doc
-        this.doc.shadow = this.diffPatcher.clone(serverResponse.state);
-        this.doc.serverVersion = 0;
-
-        this.socket.on('error', function () {
-            if (this.initialized) {
-
-            }
-        });
-
-        // notify about established connection
-        this.emit('connected');
     }
 
     /**
-     * Alias function for `sync`
+     * Function that submits the changes from the server, while also accepts incomming changes
      */
-    sync() {
+    public sync(): void {
+        if (!this.initialized) {
+            console.warn("You must initialize the document before syncing is enabled");
+            return;
+        }
+
         if (this.offline) {
-            // We can be in offline mode only after initialization
+            // We can be in offline mode only after we already have doc set
             this.offlineStore.storeData(this.doc);
 
-        } else {
-            this._schedule();
-        }
-    }
-
-    /**
-     * Schedule a sync cycle. This method should be used from the outside to
-     * trigger syncs.
-     * @private
-     */
-    _schedule() {
-        // do nothing if already scheduled
-        if (!this.scheduled) {
-            this.scheduled = true;
-
-            // try to sync now
-            this._syncWithServer();
+        } else if (!this.syncing) {
+            this.syncWithServer();
         }
     }
 
 
     /**
-     * Starts a sync cycle. Should not be called from third parties
-     * @private
+     * Starts a sync cycle.
      */
-    _syncWithServer() {
-        if (this.syncing || !this.initialized) {
-            return false;
-        }
-        if (this.scheduled) {
-            this.scheduled = false;
-        }
-
+    private async syncWithServer(): Promise<void> {
         // initiate syncing cycle
         this.syncing = true;
 
         // 1) create a diff of local copy and shadow
         let diff = this.diffPatcher.diff(this.doc.shadow, this.doc.localCopy);
-        let basedOnLocalVersion = this.doc.localVersion;
+        let localVersion = this.doc.localVersion;
 
-        // 2) add the difference to the local edits stack
-        this.doc.edits.push(this._createDiffMessage(diff, basedOnLocalVersion));
-        this.doc.localVersion++;
+        if (diff) {
+            // 2) add the difference to the local edits stack
+            this.doc.edits.push(new Edit(localVersion, diff));
+            this.doc.localVersion++;
+        }
 
-        // 3) create an edit message with all relevant version numbers
-        let editMessage = this._createEditMessage(basedOnLocalVersion);
-
-        // 4) apply the patch to the local shadow
+        // 3) apply the patch to the local shadow
         this.diffPatcher.patch(this.doc.shadow, this.diffPatcher.clone(diff));
 
-        // 5) send the edits to the server
-        this.socket.emit(Commands.SYNC, editMessage, (response) => this._applyServerEdits(response));
-    }
+        // 4) send the edits to the server
+        let syncMessage = new SyncMessage();
 
-    /**
-     * Creates a message for the specified diff
-     * @param  {Delta} diff          the diff that will be sent
-     * @param  {Number} baseVersion the version of which the diff is based
-     * @return {Object}             a diff message
-     * @private
-     */
-    _createDiffMessage(diff, baseVersion) {
-        return {
-            serverVersion: this.doc.serverVersion,
-            localVersion: baseVersion,
-            diff: diff
-        };
-    }
-
-    /**
-     * Creates a message representing a set of edits
-     * An edit message contains all edits since the last sync has happened.
-     * @param  {Number} baseVersion The version that these edits are based on
-     * @private
-     */
-    _createEditMessage(baseVersion) {
-        return {
-            room: this.room,
-            sessionId: this.doc.sessionId,
-            edits: this.doc.edits,
-            localVersion: baseVersion,
-            serverVersion: this.doc.serverVersion
-        };
+        let response = await fetchJson(Command.SYNC, syncMessage);
     }
 
     /**
@@ -294,6 +224,11 @@ class Client {
     _performMerge() {
         this.socket.emit(syncWithServer, editMessage, this.applyServerEdits);
     }
+
+    private endpointUrl(command: Command): string {
+        return `${this.synchronizationUrl}/${command}`;
+    }
+
 };
 
 export default Client;

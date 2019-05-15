@@ -1,5 +1,5 @@
 import DataAdapter from "./server_data_adapter";
-import Document from "./document";
+import Document from "../types/document";
 
 /**
  * A dumb in-memory data store. Do not use in production. Only for demo purposes.

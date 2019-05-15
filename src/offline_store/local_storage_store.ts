@@ -1,5 +1,5 @@
 import LocalStore from "./client_offline_store";
-import Document from "./document";
+import Document from "../types/document";
 
 /**
  * A default Local Storage store
@@ -20,7 +20,7 @@ class LocalStorageStore implements LocalStore {
     }
 
     let data = this.getData();
-    return Boolean(data.room && data.sessionId);
+    return Boolean(data && data.room && data.sessionId);
   }
 
   /**
@@ -28,7 +28,7 @@ class LocalStorageStore implements LocalStore {
    */
   getData(): Document | null {
     let data = localStorage.getItem(this.key);
-    return JSON.parse(data);
+    return JSON.parse(data || '');
   }
 
   /**

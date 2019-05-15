@@ -1,5 +1,9 @@
-import DataAdapter from "./server_data_adapter";
+import DataAdapter from "./data_adapter/server_data_adapter";
 import { Config, DiffPatcher } from "jsondiffpatch";
+import Endpoint from "./types/endpoint";
+import Command from "./types/command";
+import Document from "./types/document";
+import { JoinMessage } from "./types/message";
 
 class Server {
 
@@ -23,86 +27,37 @@ class Server {
     }
 
     /**
-     * Registers the correct event listeners
-     * @param  {Socket} connection The connection that should get tracked
-     * @private
+     * Return a list of endpoints that should be registered, each starts with name and a function for handling the request
      */
-    _trackConnection(connection) {
-        connection.on(Commands.JOIN, (payload, callback) => this._joinConnection(connection, payload, callback));
-        connection.on(Commands.SYNC, (payload, callback) => this._receiveEdit(connection, payload, callback));
-        // connection.on(Commands., this.receiveEdit.bind(this, connection));
-        // connection.on(Commands.PING, this.receivePing.bind(this, connection));
+    public generatedEndpoints(): Endpoint[] {
+        return [
+            new Endpoint(this.endpointUrl(Command.JOIN), async (requestBody) => this.joinConnection(requestBody)),
+
+        ]
     }
 
     /**
      * Joins a connection to a room and send the initial data
-     * @param  {Socket} connection Connection used for communication
-     * @param  {Object} payload object with room identifier, or session Id
-     * @param  {Function} initializeClient Callback that is being used for initialization of the client
-     * @private
+     * @param requestBody object with room identifier, or session Id
      */
-    async _joinConnection(connection, payload, initializeClient) {
+    private async joinConnection(requestBody: object): Promise<object> {
+        let payload = requestBody as JoinMessage;
+        let room = this.getRoom(payload.room);
+
         if (payload.sessionId) {
-
-            // TODO
-            let data = await this._getData(payload.sessionId);
-            initializeClient({
-                sessionId: payload.sessionId,
-                state: serverState
-            });
+            // Simple acknowledgment
+            return {};
 
         } else {
-
-            let serverState = this._getRoomData(payload.room);
-
             // Set up client data
-            let sessionId = this._generateSessionId();
-            this.clientData[sessionId] = {
-                backup: {
-                    doc: this.diffPatcher.clone(serverState),
-                    serverVersion: 0
-                },
-                shadow: {
-                    doc: this.diffPatcher.clone(serverState),
-                    serverVersion: 0,
-                    localVersion: 0
-                },
-                edits: []
-            };
+            let sessionId = this.generateSessionId();
+            let clientDocument = new Document(payload.room, sessionId);
+            clientDocument.localCopy = this.diffPatcher.clone(room);
+            clientDocument.shadow = this.diffPatcher.clone(room);
 
-            // send the current server version
-            initializeClient({
-                sessionId: sessionId,
-                state: this.clientData[sessionId]
-            });
+            // send the generated data
+            return clientDocument;
         }
-    }
-
-    /**
-     * Generates session ID for client endless session
-     * @returns {string} Adapter implementation of unique id generation or UUID otherwise
-     * @private
-     */
-    _generateSessionId() {
-        if (this.persistenceAdapter.generateSessionId) {
-            return this.persistenceAdapter.generateSessionId();
-        } else {
-            return this._generateUniqueId();
-        }
-    }
-
-    /**
-     * UUID 4 generator as per https://stackoverflow.com/a/2117523/5521670
-     *
-     * @returns {string} Unique ID
-     * @private
-     */
-    _generateUniqueId() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
-            let random = Math.random() * 16 | 0;
-            let value = char === 'x' ? random : (random & 0x3 | 0x8);
-            return value.toString(16);
-        });
     }
 
     /**
@@ -234,31 +189,41 @@ class Server {
         });
     }
 
-    /**
-     * @param sessionId Unique id of client session
-     * @returns {Object} Client document
-     * @private
-     */
-    _getData(sessionId) {
-        if (this.clientData[sessionId]) {
-            return this.clientData[sessionId];
+    private getRoom(roomId: string): object {
+        if (!this.persistenceAdapter.hasRoom(roomId)) {
+            this.persistenceAdapter.storeRoom(roomId, {});
         }
 
-        this.clientData[sessionId] = this.persistenceAdapter.getData(sessionId);
+        return this.persistenceAdapter.getRoom(roomId) || {};
+    }
+
+    private endpointUrl(command: Command): string {
+        return `${this.synchronizationUrl}/${command}`;
     }
 
     /**
-     * @param room Room id
-     * @returns {Object} Server state for room
-     * @private
+     * Generates session ID for client endless session
+     * @returns Adapter implementation of unique id generation or UUID otherwise
      */
-    _getRoomData(room) {
-        if (!this.rooms[room]) {
-            // Initialize empty document
-            this.rooms[room] = {};
+    private generateSessionId(): string {
+        if (this.persistenceAdapter.generateSessionId) {
+            return this.persistenceAdapter.generateSessionId();
+        } else {
+            return this.generateUniqueId();
         }
+    }
 
-        return this.rooms[room];
+    /**
+     * UUID 4 generator as per https://stackoverflow.com/a/2117523/5521670
+     *
+     * @returns Unique ID
+     */
+    private generateUniqueId(): string {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+            let random = Math.random() * 16 | 0;
+            let value = char === 'x' ? random : (random & 0x3 | 0x8);
+            return value.toString(16);
+        });
     }
 
 }

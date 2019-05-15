@@ -1,4 +1,4 @@
-import Document from "./document";
+import Document from "../types/document";
 
 interface LocalStore {
 
