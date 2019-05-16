@@ -1,0 +1,21 @@
+{
+  "env": {
+    "browser": true,
+    "node": true,
+    "mocha": true,
+    "es6": true
+  },
+  "parser": "typescript-eslint-parser",
+  "parserOptions": {
+    "ecmaVersion": 6,
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-mixed-requires": "warn",
+    "no-multi-spaces": "warn",
+    "no-new": "warn",
+    "no-underscore-dangle": "warn",
+    "quotes": [2, "single", "avoid-escape"],
+    "strict": [2, "never"]
+  }
+}
