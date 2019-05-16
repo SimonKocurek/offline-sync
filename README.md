@@ -1,9 +1,19 @@
 # offline-sync
-Differential Synchronization based method with offline mode implemented
+Differential Synchronization based method with offline mode implemented, using diffsyncpatch to merge json objects.
 
 ## Prerequisites
 
 Typescript project or a support of es2017 is required.
+
+## Npm
+For the typescript version:
+```bash
+$ npm install --save offline-sync-typed
+```
+For the es2017 version:
+```bash
+$ npm install --save offline-sync
+```
 
 ## Client usage
 ```javascript
@@ -78,7 +88,14 @@ The structure of `ClientDocument` can change in time, however it is guaranteed t
 
 ## Server usage
 ```javascript
-let server = new Server();
+// Data adapter for storing data on the server, some database adapter is expected here
+let adapter = new InMemoryDataAdapter();
+// https://github.com/benjamine/jsondiffpatch#options *Optional defaults to empty object
+let jsondiffpatchOptions = {};
+// Url on which commands will be syncrhonized (eg. http://server.com/state/synchronization/join) *Optional, defaults to empty string
+let endpointUrl = 'state/synchronization';
+
+let server = new Server(adapter, jsondiffpatchOptions, endpointUrl);
 // List of endpoints and their handlers that you can use in any http server implementation
 let endpoints = server.generatedEndpoints();
 
@@ -100,5 +117,50 @@ endpoints.forEach(endpoint => {
 ```
 
 ### Data Adapter Interface
+To implement a way server side data is stored, create a class using this interface:
 ```typescript
+/**
+ * Interface for communicating with persistence layer, saving entities of type Document and State
+ * Server side provides no caching, so if you require it, please implement it here.
+ */
+interface DataAdapter {
+
+    /**
+     * Server side of document is present
+     */
+    hasData(sessionId: string): boolean;
+
+    /**
+     * Get the server side of document
+     */
+    getData(sessionId: string): ServerDocument | null;
+
+    /**
+     * Store the server side of document
+     */
+    storeData(sessionId: string, document: ServerDocument): void;
+
+
+    /**
+     * Document synchronized across clients with id exists
+     */
+    hasRoom(roomId: string): boolean;
+
+    /**
+     * Get document synchronized across clients by id
+     */
+    getRoom(roomId: string): object |null;
+
+    /**
+     * Store Document synchronized across clients
+     */
+    storeRoom(roomId: string, room: object): void;
+
+    /**
+     * Optional implementation of getting unique id using database.
+     * Default implementation generates a UUID v4
+     */
+    generateSessionId?(): string;
+
+}
 ```

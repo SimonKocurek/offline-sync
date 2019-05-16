@@ -30,3 +30,10 @@ export function wait(milliseconds: number): Promise<void> {
 export function clone(object: object): object {
     return JSON.parse(JSON.stringify(object));
 }
+
+/**
+ * Returns number of miliseconds that passed since timestamp, can be negative number
+ */
+export function timeSince(timestamp: number): number {
+    return Date.now() - timestamp;
+}

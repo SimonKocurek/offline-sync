@@ -2,7 +2,7 @@ import {DiffPatcher, Config} from "jsondiffpatch";
 import Command from "./types/command";
 import LocalStore from "./offline_store/client_offline_store";
 import { ClientDocument } from "./types/document";
-import { fetchJson, clone, wait } from "./util/functions";
+import { fetchJson, clone, wait, timeSince } from "./util/functions";
 import { JoinMessage, SyncMessage } from "./types/message";
 import Edit from "./types/edit";
 import { removeConfirmedEdits } from "./util/synchronize";
@@ -139,6 +139,9 @@ class Client {
         }
     }
 
+    /**
+     * Performs a diff and creates a message with all unconfirmed or unsent edits
+     */
     private createSyncMessage(): SyncMessage {
         let diff = this.diffPatcher.diff(this.doc.shadow, this.doc.localCopy);
         let localVersion = this.doc.localVersion;
@@ -196,7 +199,7 @@ class Client {
         this.doc.remoteVersion = edit.basedOnVersion;
     }
 
-    private async startOfflineMode(): Promise<void> {
+    private startOfflineMode(): void {
         if (this.offline) {
             throw new Error("Offline mode already enabled");
         }
@@ -204,23 +207,37 @@ class Client {
         this.offline = true;
         this.offlineStore.storeData(this.doc);
 
-        let waitTime = 1000;
-        while (true) {
-            await wait(waitTime);
+        this.startReconnectionChecking();
+    }
 
+    /**
+     * Start periodically sending a request, waiting for server response
+     */
+    private async startReconnectionChecking(): Promise<void> {
+        let timeBetweenRequests = 1000;
+
+        while (true) {
             try {
                 let response = await fetchJson(Command.PING, {}) as SyncMessage;
                 this.reconnectionMerge(response);
                 break;
 
             } catch (error) {
-                waitTime += waitTime / 5;
+                // Reconnection attempt failed
+                await wait(timeBetweenRequests);
+
+            } finally {
+                timeBetweenRequests += timeBetweenRequests / 5;
             }
         }
     }
 
+    /**
+     * 
+     * @param payload 
+     */
     private reconnectionMerge(payload: SyncMessage): void {
-        if (this.manualMergeRequired()) {
+        if (this.manualMergeRequired(payload)) {
 
         } else {
             this.applyServerEdits(payload);
@@ -231,6 +248,17 @@ class Client {
         this.disableOfflineMode();
     }
 
+    /**
+     * 
+     */
+    private manualMergeRequired(payload: SyncMessage): boolean {
+        return timeSince(this.timeSinceResponse) > 30_000 // After more than 30 seconds concider a merge
+            && payload.edits.length > 0;
+    }
+
+    /**
+     * Clears all data related to the offline mode and disables it's flag
+     */
     private disableOfflineMode(): void {
         this.offlineStore.clearData();
         this.offline = false;

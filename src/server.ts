@@ -18,7 +18,7 @@ class Server {
      * @param diffOptions diffPatcher options
      * @param synchronizationUrl Url appended to the server for syncrhonization
      */
-    constructor(private persistenceAdapter: DataAdapter, diffOptions: Config, private synchronizationUrl: string = '') {
+    constructor(private persistenceAdapter: DataAdapter, diffOptions: Config = {}, private synchronizationUrl: string = '') {
         diffOptions = Object.assign({
             // In case of the need for three way merge after reconnection, send the client remove and add, instead of move diffs
             arrays: {

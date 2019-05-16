@@ -2,21 +2,40 @@ import { ServerDocument } from "../types/document";
 
 /**
  * Interface for communicating with persistence layer, saving entities of type Document and State
+ * Server side provides no caching, so if you require it, please implement it here.
  */
 interface DataAdapter {
 
-    hasData(id: string): boolean;
+    /**
+     * Server side of document is present
+     */
+    hasData(sessionId: string): boolean;
 
-    getData(id: string): ServerDocument | null;
+    /**
+     * Get the server side of document
+     */
+    getData(sessionId: string): ServerDocument | null;
 
-    storeData(id: string, document: ServerDocument): void;
+    /**
+     * Store the server side of document
+     */
+    storeData(sessionId: string, document: ServerDocument): void;
 
 
-    hasRoom(id: string): boolean;
+    /**
+     * Document synchronized across clients with id exists
+     */
+    hasRoom(roomId: string): boolean;
 
-    getRoom(id: string): object |null;
+    /**
+     * Get document synchronized across clients by id
+     */
+    getRoom(roomId: string): object |null;
 
-    storeRoom(id: string, room: object): void;
+    /**
+     * Store Document synchronized across clients
+     */
+    storeRoom(roomId: string, room: object): void;
 
     /**
      * Optional implementation of getting unique id using database.
