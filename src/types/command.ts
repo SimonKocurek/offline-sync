@@ -6,10 +6,7 @@ enum Command {
   PING = 'diffsync-ping',
 
   // Synchronization request
-  SYNC ='diffsync-updated-doc',
-
-  // Request was invalid
-  ERROR ='diffsync-error'
+  SYNC ='diffsync-updated-doc'
 }
 
 export default Command;
