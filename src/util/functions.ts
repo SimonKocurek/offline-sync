@@ -18,6 +18,13 @@ export async function fetchJson(input: RequestInfo, body: object): Promise<objec
 }
 
 /**
+ * Waits for a certain ammount of time
+ */
+export function wait(milliseconds: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+/**
  * Performs a deep copy
  */
 export function clone(object: object): object {

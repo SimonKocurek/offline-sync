@@ -1,13 +1,12 @@
-import { SyncMessage } from "../types/message";
 import { ServerDocument } from "../types/document";
-import { clone } from "./util";
+import { clone } from "./functions";
 import Edit from "../types/edit";
 
 /**
  * Remove all edits that were seen by the other side
  */
-export function removeConfirmedEdits(payload: SyncMessage, edits: Edit[]): void {
-    while (edits.length > 0 && payload.lastReceivedVersion >= edits[0].basedOnVersion) {
+export function removeConfirmedEdits(lastReceivedVersion: number, edits: Edit[]): void {
+    while (edits.length > 0 && lastReceivedVersion >= edits[0].basedOnVersion) {
         edits.shift(); // remove the edit
     }
 }

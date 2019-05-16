@@ -2,7 +2,7 @@ import {DiffPatcher, Config} from "jsondiffpatch";
 import Command from "./types/command";
 import LocalStore from "./offline_store/client_offline_store";
 import { ClientDocument } from "./types/document";
-import { fetchJson, clone } from "./util/util";
+import { fetchJson, clone, wait } from "./util/functions";
 import { JoinMessage, SyncMessage } from "./types/message";
 import Edit from "./types/edit";
 import { removeConfirmedEdits } from "./util/synchronize";
@@ -33,33 +33,19 @@ class Client {
      * @param offlineStore Adapter for storing data in offline mode
      * @param synchronizationUrl Url appended to the server for syncrhonization
      */
-    constructor(private room: string, diffOptions: Config, private offlineStore: LocalStore, private synchronizationUrl: string = '') {
+    constructor(private room: string, private offlineStore: LocalStore, diffOptions: Config = {}, private synchronizationUrl: string = '') {
         this.diffPatcher = new DiffPatcher(diffOptions);
     }
 
     /**
-     * Get the data
-     * @return client edited state
+     * Initializes the sync session and returns the stored document
+     * May thrown an error if initialization failed
      */
-    public getData(): object | null {
-        if (!this.doc) {
-            return null;
-        }
-
-        return this.doc.localCopy;
-    }
-
-    /**
-     * Initializes the sync session
-     */
-    public async initialize(): Promise<void> {
+    public async initialize(): Promise<object> {
         try {
             this.syncing = true;
-            await this.createConnection();
-
-        } catch (error) {
-            console.error(error);
-            this.startOfflineMode();
+            let initializedDocument = await this.setupDocument();
+            return initializedDocument.localCopy;
 
         } finally {
             this.syncing = false;
@@ -67,47 +53,49 @@ class Client {
     }
 
     /**
-     * Creates initial connection from the stored data, or initializes a brand new one
+     * Creates document from the stored data, or initializes a brand new one from the server
      */
-    private async createConnection(): Promise<void> {
-        if (this.offlineStore.hasData()) {
-            await this.restoreOldConnection();
+    private async setupDocument(): Promise<ClientDocument> {
+        let result: ClientDocument;
 
+        if (this.offlineStore.hasData()) {
+            result = this.loadStoredData();
         } else {
-            await this.createNewConnection();
+            result = await this.createNewConnection();
         }
 
-        this.finishInitialization();
+        this.finishInitialization(result);
+        return result;
     }
 
     /**
      * Restores old connection stored in the offline Store
      */
-    private async restoreOldConnection(): Promise<void> {
+    private loadStoredData(): ClientDocument {
         let data = this.offlineStore.getData();
+
         if (!data || data.room !== this.room) {
-            throw new Error("Invalid data stored");
+            throw new Error(`Invalid data stored ${data} expected to be for room ${this.room}.`);
         }
 
-        await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(data.room, data.sessionId));
-
-        // After we receive acknowledgment from the server, we can mark the document as a working one
-        this.doc = data || this.doc;
+        return data;
     }
 
     /**
      * Starts a new connection with fresh data
      */
-    private async createNewConnection(): Promise<void> {
-        this.doc = await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as ClientDocument;
+    private async createNewConnection(): Promise<ClientDocument> {
+        // Throws error if connection
+        return await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as ClientDocument;
     }
 
     /**
      * Mark the current client as initialized
      */
-    private finishInitialization(): void {
+    private finishInitialization(initializedDocument: ClientDocument): void {
         this.initialized = true;
         this.timeSinceResponse = Date.now();
+        this.doc = initializedDocument;
     }
 
     /**
@@ -124,7 +112,7 @@ class Client {
             this.offlineStore.storeData(this.doc);
 
         } else if (this.syncing) {
-            console.debug("Sync is already in progress.");
+            console.debug("Sync is already in progress you must wait for it to finish");
 
         } else {
             await this.syncWithServer();
@@ -139,6 +127,7 @@ class Client {
             this.syncing = true;
 
             let syncMessage = this.createSyncMessage();
+            // Syncing needs to wait here for the response from the server
             await this.sendSyncMessage(syncMessage);
 
         } catch (error) {
@@ -170,7 +159,6 @@ class Client {
      */
     private async sendSyncMessage(syncMessage: SyncMessage): Promise<void> {
         let response = await fetchJson(Command.SYNC, syncMessage) as SyncMessage;
-
         this.timeSinceResponse = Date.now();
         this.applyServerEdits(response);
     }
@@ -181,7 +169,7 @@ class Client {
      */
     private applyServerEdits(payload: SyncMessage): void {
         // Version checking not needed, as by the time response is returned, server is guaranteed to be on the same version
-        removeConfirmedEdits(payload, this.doc.edits);
+        removeConfirmedEdits(payload.lastReceivedVersion, this.doc.edits);
 
         // apply all valid edits
         for (let edit of payload.edits) {
@@ -208,29 +196,46 @@ class Client {
         this.doc.remoteVersion = edit.basedOnVersion;
     }
 
-    private startOfflineMode(): void {
+    private async startOfflineMode(): Promise<void> {
+        if (this.offline) {
+            throw new Error("Offline mode already enabled");
+        }
+
         this.offline = true;
         this.offlineStore.storeData(this.doc);
 
-        setInterval(() => {
-            // let response = await fetchJson(Command.PING, syncMessage) as SyncMessage;
-        }, 1000);
+        let waitTime = 1000;
+        while (true) {
+            await wait(waitTime);
+
+            try {
+                let response = await fetchJson(Command.PING, {}) as SyncMessage;
+                this.reconnectionMerge(response);
+                break;
+
+            } catch (error) {
+                waitTime += waitTime / 5;
+            }
+        }
     }
 
-// TODO implement
-    // reconnected(editMessage) {
-    //     this._performMerge();
-    //     // TODO perform merge
-    //     //  - ask for server state
-    //     //  - let client merge
-    //     //  - validate merge
-    //     //  - submit
+    private reconnectionMerge(payload: SyncMessage): void {
+        if (this.manualMergeRequired()) {
 
-    //     // TODO on valid merge callback
-    //     //  - clear this.doc, to free up memory
-    //     //  - set this.offline = false
-    //     //  - stop pinging
-    // }
+        } else {
+            this.applyServerEdits(payload);
+        }
+
+        // Upload merged state
+        this.syncWithServer();
+        this.disableOfflineMode();
+    }
+
+    private disableOfflineMode(): void {
+        this.offlineStore.clearData();
+        this.offline = false;
+        this.timeSinceResponse = Date.now();
+    }
 
     /**
      * Url of endpoint for specified command

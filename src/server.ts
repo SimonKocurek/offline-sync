@@ -2,8 +2,8 @@ import DataAdapter from "./data_adapter/server_data_adapter";
 import { Config, DiffPatcher } from "jsondiffpatch";
 import Endpoint from "./types/endpoint";
 import Command from "./types/command";
-import { JoinMessage, SyncMessage } from "./types/message";
-import { clone } from "./util/util";
+import { JoinMessage, SyncMessage, PingMessage } from "./types/message";
+import { clone } from "./util/functions";
 import Edit from "./types/edit";
 import { removeConfirmedEdits, pefrormBackup, performRoolback } from "./util/synchronize";
 import { ServerDocument, ClientDocument, Document } from "./types/document";
@@ -36,6 +36,7 @@ class Server {
         return [
             new Endpoint(this.endpointUrl(Command.JOIN), async (requestBody) => this.joinConnection(requestBody as JoinMessage)),
             new Endpoint(this.endpointUrl(Command.SYNC), async (requestBody) => this.sync(requestBody as SyncMessage)),
+            new Endpoint(this.endpointUrl(Command.PING), async (requestBody) => this.receivePing(requestBody as PingMessage)),
         ]
     }
 
@@ -44,12 +45,7 @@ class Server {
      * @param requestBody object with room identifier, or session Id
      */
     private async joinConnection(payload: JoinMessage): Promise<ClientDocument | object> {
-        if (payload.sessionId) {
-            // Simple acknowledgment
-            return {};
-        } else {
-            return this.generateClientData(payload.room);
-        }
+        return this.generateClientData(payload.room);
     }
 
     /**
@@ -74,14 +70,14 @@ class Server {
         let clientData = this.persistenceAdapter.getData(payload.sessionId);
 
         if (!room) {
-            throw new Error("Invalid room id received");
+            throw new Error(`Invalid room id received ${payload}`);
         }
         if (!clientData) {
-            throw new Error("Invalid session id received");
+            throw new Error(`Invalid session id received ${payload}`);
         }
 
-        this.checkVersionNumbers(payload, clientData);
-        removeConfirmedEdits(payload, clientData.edits);
+        this.checkVersionNumbers(payload.lastReceivedVersion, clientData);
+        removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
 
         // apply all valid edits
         for (let edit of payload.edits) {
@@ -97,13 +93,13 @@ class Server {
     /**
      * check the version numbers for lost packets
      */
-    private checkVersionNumbers(payload: SyncMessage, clientData: ServerDocument): void {
-        if (payload.lastReceivedVersion !== clientData.localVersion) {
+    private checkVersionNumbers(lastReceivedVersion: number, clientData: ServerDocument): void {
+        if (lastReceivedVersion !== clientData.localVersion) {
             // Something has gone wrong, try performing a rollback
-            if (payload.lastReceivedVersion === clientData.backupVersion) {
+            if (lastReceivedVersion === clientData.backupVersion) {
                 performRoolback(clientData);
             } else {
-                throw new Error("Sync message versions invalid");
+                throw new Error(`Sync message versions invalid lastReceived: ${lastReceivedVersion}, backup: ${clientData.backupVersion}`);
             }
         }
     }
@@ -142,6 +138,26 @@ class Server {
         }
 
         return new SyncMessage(clientData.room, clientData.sessionId, clientData.remoteVersion, clientData.edits);
+    }
+
+    /**
+     * Receive ping message and return diffs that happened in the meantime
+     */
+    private receivePing(payload: PingMessage): SyncMessage {
+        let room = this.persistenceAdapter.getRoom(payload.room);
+        let clientData = this.persistenceAdapter.getData(payload.sessionId);
+
+        if (!room) {
+            throw new Error(`Invalid room id received ${payload}`);
+        }
+        if (!clientData) {
+            throw new Error(`Invalid session id received ${payload}`);
+        }
+
+        this.checkVersionNumbers(payload.lastReceivedVersion, clientData);
+        removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
+
+        return this.getServerDiff(room, clientData);
     }
 
     /**

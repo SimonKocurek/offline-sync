@@ -24,9 +24,16 @@ class LocalStorageStore implements LocalStore {
   }
 
   /**
+   * Removes data stored under specified key
+   */
+  public clearData(): void {
+    localStorage.removeItem(this.key);
+  }
+
+  /**
    * @returns object stored in the localStorage
    */
-  getData(): ClientDocument | null {
+  public getData(): ClientDocument | null {
     let data = localStorage.getItem(this.key);
     return JSON.parse(data || '');
   }
@@ -35,7 +42,7 @@ class LocalStorageStore implements LocalStore {
    * Stores the data under specified key
    * @param data Data to save
    */
-  storeData(data: ClientDocument): void {
+  public storeData(data: ClientDocument): void {
     let serialized = JSON.stringify(data);
     localStorage.setItem(this.key, serialized);
   }

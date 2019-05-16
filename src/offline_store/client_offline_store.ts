@@ -6,10 +6,24 @@ import { ClientDocument } from "../types/document";
  */
 interface LocalStore {
 
+  /**
+   * Data are present on the browser
+   */
   hasData(): boolean;
 
+  /**
+   * Clears data so that next time hasData retuns false
+   */
+  clearData(): void;
+
+  /**
+   * Get the client data
+   */
   getData(): ClientDocument | null;
 
+  /**
+   * Store the client data
+   */
   storeData(data: ClientDocument): void;
 
 }

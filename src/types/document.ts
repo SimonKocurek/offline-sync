@@ -1,5 +1,5 @@
 import Edit from "./edit";
-import { clone } from "../util/util";
+import { clone } from "../util/functions";
 
 /**
  * A shared unit, used for synchronization on both the server and the client
