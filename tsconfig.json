@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "target": "es6",
+    "target": "es5",
+
     "noImplicitAny": true,
     "preserveConstEnums": true,
     "noUnusedLocals": true,
@@ -10,14 +11,13 @@
     "removeComments": true,
     "allowUnreachableCode": false,
     "strictNullChecks": true,
+
     "module": "commonjs",
+    "rootDir": "src",
     "outDir": "dist",
     "moduleResolution": "node"
   },
   "compileOnSave": true,
-  "files": [
-    "./node_modules/@types/node/index.d.ts"
-  ],
   "include": [
     "src/**/*.ts"
   ],

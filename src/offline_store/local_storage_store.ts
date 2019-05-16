@@ -1,5 +1,5 @@
 import LocalStore from "./client_offline_store";
-import Document from "../types/document";
+import { ClientDocument } from "../types/document";
 
 /**
  * A default Local Storage store
@@ -26,7 +26,7 @@ class LocalStorageStore implements LocalStore {
   /**
    * @returns object stored in the localStorage
    */
-  getData(): Document | null {
+  getData(): ClientDocument | null {
     let data = localStorage.getItem(this.key);
     return JSON.parse(data || '');
   }
@@ -35,7 +35,7 @@ class LocalStorageStore implements LocalStore {
    * Stores the data under specified key
    * @param data Data to save
    */
-  storeData(data: Document): void {
+  storeData(data: ClientDocument): void {
     let serialized = JSON.stringify(data);
     localStorage.setItem(this.key, serialized);
   }

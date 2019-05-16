@@ -1,7 +1,7 @@
 import {DiffPatcher, Config} from "jsondiffpatch";
 import Command from "./types/command";
 import LocalStore from "./offline_store/client_offline_store";
-import Document from "./types/document";
+import { ClientDocument } from "./types/document";
 import { fetchJson, clone } from "./util/util";
 import { JoinMessage, SyncMessage } from "./types/message";
 import Edit from "./types/edit";
@@ -22,7 +22,7 @@ class Client {
     private timeSinceResponse: number;
 
     // Document itself
-    private doc: Document;
+    private doc: ClientDocument;
 
     // Utility for calculating differences and patching document
     private diffPatcher: DiffPatcher;
@@ -52,7 +52,7 @@ class Client {
     /**
      * Initializes the sync session
      */
-    public async initialize() {
+    public async initialize(): Promise<void> {
         try {
             this.syncing = true;
             await this.createConnection();
@@ -99,7 +99,7 @@ class Client {
      * Starts a new connection with fresh data
      */
     private async createNewConnection(): Promise<void> {
-        this.doc = await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as Document;
+        this.doc = await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as ClientDocument;
     }
 
     /**
@@ -181,7 +181,7 @@ class Client {
      */
     private applyServerEdits(payload: SyncMessage): void {
         // Version checking not needed, as by the time response is returned, server is guaranteed to be on the same version
-        removeConfirmedEdits(payload, this.doc);
+        removeConfirmedEdits(payload, this.doc.edits);
 
         // apply all valid edits
         for (let edit of payload.edits) {

@@ -1,4 +1,4 @@
-import Document from "../types/document";
+import { ClientDocument } from "../types/document";
 
 /**
  * Interface for client side data persistence. Can use localstorage, sessionstorage, indexDb, cookies
@@ -8,9 +8,9 @@ interface LocalStore {
 
   hasData(): boolean;
 
-  getData(): Document | null;
+  getData(): ClientDocument | null;
 
-  storeData(data: Document): void;
+  storeData(data: ClientDocument): void;
 
 }
 

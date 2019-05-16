@@ -1,12 +1,12 @@
 import DataAdapter from "./server_data_adapter";
-import Document from "../types/document";
+import { ServerDocument } from "../types/document";
 
 /**
  * A dumb in-memory data store. Do not use in production. Only for demo purposes.
  */
 class InMemoryDataAdapter implements DataAdapter {
 
-    private data: {[sessionId: string]: Document} = {};
+    private data: {[sessionId: string]: ServerDocument} = {};
 
     private rooms: {[roomId: string]: object} = {};
 
@@ -14,11 +14,11 @@ class InMemoryDataAdapter implements DataAdapter {
         return Boolean(this.data[sessionId]);
     }
 
-    public getData(sessionId: string): Document | null {
+    public getData(sessionId: string): ServerDocument | null {
         return this.data[sessionId];
     }
 
-    public storeData(sessionId: string, data: Document): void {
+    public storeData(sessionId: string, data: ServerDocument): void {
         this.data[sessionId] = data;
     }
 
