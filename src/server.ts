@@ -5,6 +5,7 @@ import Command from "./types/command";
 import Document from "./types/document";
 import { JoinMessage, SyncMessage } from "./types/message";
 import { clone } from "./util";
+import Edit from "./types/edit";
 
 class Server {
 
@@ -45,20 +46,27 @@ class Server {
         if (payload.sessionId) {
             // Simple acknowledgment
             return {};
-
         } else {
-            // Set up client data
-            let sessionId = this.generateSessionId();
-            let room = this.getRoom(payload.room);
-
-            let clientDocument = new Document(payload.room, sessionId, room);
-            this.persistenceAdapter.storeData(sessionId, clientDocument);
-
-            // send the generated data
-            delete clientDocument.backup; // Backup is only needed on the server
-            delete clientDocument.backupVersion;
-            return clientDocument;
+            return this.generateClientData(payload.room);
         }
+    }
+
+    /**
+     * 
+     * @param roomId 
+     */
+    private generateClientData(roomId: string): Document {
+        let sessionId = this.generateSessionId();
+        let room = this.getRoom(roomId);
+
+        let clientDocument = new Document(roomId, sessionId, room);
+        this.persistenceAdapter.storeData(sessionId, clientDocument);
+
+        // Backup is only needed on the server
+        delete clientDocument.backup;
+        delete clientDocument.backupVersion;
+
+        return clientDocument
     }
 
     /**
@@ -70,6 +78,9 @@ class Server {
         let state = this.persistenceAdapter.getRoom(payload.room);
         let clientData = this.persistenceAdapter.getData(payload.sessionId);
 
+        if (!state) {
+            throw new Error("Invalid room id received");
+        }
         if (!clientData) {
             throw new Error("Invalid session id received");
         }
@@ -106,7 +117,7 @@ class Server {
         this.persistenceAdapter.storeData(payload.sessionId, clientData);
 
         // 7) respond with current diffs
-        this.sendServerChanges(doc, clientDoc, sendToClient);
+        return this.getServerDiff(state, clientData);
     }
 
     /**
@@ -129,41 +140,33 @@ class Server {
         clientData.backupVersion = clientData.localVersion;
     }
 
-    sendServerChanges(doc, clientDoc, send) {
+    /**
+     * 
+     * @param state 
+     * @param clientData 
+     */
+    private getServerDiff(state: object, clientData: Document): SyncMessage {
         // create a diff from the current server version to the client's shadow
-        let diff = this.diffPatcher.diff(clientDoc.shadow.doc, doc.serverCopy);
-        let basedOnServerVersion = clientDoc.shadow.serverVersion;
+        let diff = this.diffPatcher.diff(clientData.shadow, clientData.localCopy);
+        let basedOnVersion = clientData.localVersion;
 
         // add the difference to the server's edit stack
-        if (!isEmpty(diff)) {
-            clientDoc.edits.push({
-                serverVersion: basedOnServerVersion,
-                localVersion: clientDoc.shadow.localVersion,
-                diff: diff
-            });
-            // update the server version
-            clientDoc.shadow.serverVersion++;
+        if (diff) {
+            clientData.edits.push(new Edit(basedOnVersion, diff));
+            clientData.localVersion++;
 
-            // apply the patch to the server shadow
-            this.diffPatcher.patch(clientDoc.shadow.doc, this.diffPatcher.clone(diff));
+            this.diffPatcher.patch(clientData.shadow, clone(diff));
         }
 
-        // we explicitly want empty diffs to get sent as well
-        send({
-            localVersion: clientDoc.shadow.localVersion,
-            serverVersion: basedOnServerVersion,
-            edits: clientDoc.edits
-        });
+        return new SyncMessage(clientData.room, clientData.sessionId, clientData.remoteVersion, clientData.edits);
     }
 
-    private getRoom(roomId: string): State {
-        let generatedState = new State();
-
+    private getRoom(roomId: string): object {
         if (!this.persistenceAdapter.hasRoom(roomId)) {
-            this.persistenceAdapter.storeRoom(roomId, generatedState);
+            this.persistenceAdapter.storeRoom(roomId, {});
         }
 
-        return this.persistenceAdapter.getRoom(roomId) || generatedState;
+        return this.persistenceAdapter.getRoom(roomId) || {};
     }
 
     private endpointUrl(command: Command): string {
