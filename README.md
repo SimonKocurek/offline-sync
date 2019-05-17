@@ -75,16 +75,16 @@ interface LocalStore {
   /**
    * Get the client data
    */
-  getData(): ClientDocument | null;
+  getData(): Document | null;
 
   /**
    * Store the client data
    */
-  storeData(data: ClientDocument): void;
+  storeData(data: Document): void;
 
 }
 ```
-The structure of `ClientDocument` can change in time, however it is guaranteed to be `object`.
+The structure of `Document` can change in time, however it is guaranteed to be of `object` type.
 
 ## Server usage
 ```javascript
@@ -133,12 +133,12 @@ interface DataAdapter {
     /**
      * Get the server side of document
      */
-    getData(sessionId: string): ServerDocument | null;
+    getData(sessionId: string): Document | null;
 
     /**
      * Store the server side of document
      */
-    storeData(sessionId: string, document: ServerDocument): void;
+    storeData(sessionId: string, document: Document): void;
 
 
     /**

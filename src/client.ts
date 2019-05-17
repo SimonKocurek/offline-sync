@@ -1,11 +1,11 @@
 import {DiffPatcher, Config} from "jsondiffpatch";
 import Command from "./types/command";
 import LocalStore from "./offline_store/client_offline_store";
-import { ClientDocument } from "./types/document";
-import { fetchJson, clone, wait, timeSince } from "./util/functions";
+import { Document } from "./types/document";
+import { fetchJson,  wait, timeSince, clone } from "./util/functions";
 import { JoinMessage, SyncMessage } from "./types/message";
+import { removeConfirmedEdits, createSyncMessage, applyEdit } from "./util/synchronize";
 import Edit from "./types/edit";
-import { removeConfirmedEdits } from "./util/synchronize";
 
 class Client {
 
@@ -19,10 +19,10 @@ class Client {
     private offline: boolean = false;
 
     // Last time a response from server was returned, used for figuring out, if manual merge is needed
-    private timeSinceResponse: number;
+    private timeSinceResponse: number = -1;
 
     // Document itself
-    private doc: ClientDocument;
+    private doc: Document;
 
     // Utility for calculating differences and patching document
     private diffPatcher: DiffPatcher;
@@ -30,10 +30,17 @@ class Client {
     /**
      * @param room Id of room, where users collaborate
      * @param diffOptions diffPatcher options
+     * @param userMerge 
      * @param offlineStore Adapter for storing data in offline mode
      * @param synchronizationUrl Url appended to the server for syncrhonization
      */
-    constructor(private room: string, private offlineStore: LocalStore, diffOptions: Config = {}, private synchronizationUrl: string = '') {
+    constructor(
+        private room: string,
+        private offlineStore: LocalStore,
+        private userMerge: (local: object, server: object) => object,
+        diffOptions: Config = {},
+        private synchronizationUrl: string = ''
+    ) {
         this.diffPatcher = new DiffPatcher(diffOptions);
     }
 
@@ -42,21 +49,15 @@ class Client {
      * May thrown an error if initialization failed
      */
     public async initialize(): Promise<object> {
-        try {
-            this.syncing = true;
-            let initializedDocument = await this.setupDocument();
-            return initializedDocument.localCopy;
-
-        } finally {
-            this.syncing = false;
-        }
+        await this.setupDocument();
+        return this.getLocalCopy();
     }
 
     /**
      * Creates document from the stored data, or initializes a brand new one from the server
      */
-    private async setupDocument(): Promise<ClientDocument> {
-        let result: ClientDocument;
+    private async setupDocument(): Promise<void> {
+        let result: Document;
 
         if (this.offlineStore.hasData()) {
             result = this.loadStoredData();
@@ -65,13 +66,12 @@ class Client {
         }
 
         this.finishInitialization(result);
-        return result;
     }
 
     /**
      * Restores old connection stored in the offline Store
      */
-    private loadStoredData(): ClientDocument {
+    private loadStoredData(): Document {
         let data = this.offlineStore.getData();
 
         if (!data || data.room !== this.room) {
@@ -84,15 +84,20 @@ class Client {
     /**
      * Starts a new connection with fresh data
      */
-    private async createNewConnection(): Promise<ClientDocument> {
-        // Throws error if connection
-        return await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as ClientDocument;
+    private async createNewConnection(): Promise<Document> {
+        // Throws error if connection fails
+        try {
+            this.syncing = true;
+            return await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as Document;
+        } finally {
+            this.syncing = false;
+        }
     }
 
     /**
      * Mark the current client as initialized
      */
-    private finishInitialization(initializedDocument: ClientDocument): void {
+    private finishInitialization(initializedDocument: Document): void {
         this.initialized = true;
         this.timeSinceResponse = Date.now();
         this.doc = initializedDocument;
@@ -126,13 +131,12 @@ class Client {
         try {
             this.syncing = true;
 
-            let syncMessage = this.createSyncMessage();
+            let syncMessage = createSyncMessage(this.getLocalCopy(), this.doc, this.diffPatcher);
             // Syncing needs to wait here for the response from the server
-            await this.sendSyncMessage(syncMessage);
+            await this.synchronizeByMessage(syncMessage);
 
         } catch (error) {
-            console.error(error);
-            this.startOfflineMode();
+            this.handleSyncError(error);
 
         } finally {
             this.syncing = false;
@@ -140,27 +144,22 @@ class Client {
     }
 
     /**
-     * Performs a diff and creates a message with all unconfirmed or unsent edits
+     * Rethrows error, or starts offline mode, if network error occured
      */
-    private createSyncMessage(): SyncMessage {
-        let diff = this.diffPatcher.diff(this.doc.shadow, this.doc.localCopy);
-        let localVersion = this.doc.localVersion;
-
-        if (diff) {
-            this.doc.edits.push(new Edit(localVersion, clone(diff)));
-            this.doc.localVersion++;
-
-            this.diffPatcher.patch(this.doc.shadow, clone(diff));
+    private handleSyncError(error: Error): void {
+        // A fetch() promise will reject with a TypeError when a network error is encountered or CORS is misconfigured
+        if (error instanceof TypeError) {
+            this.startOfflineMode();
+        } else {
+            throw error;
         }
-
-        return new SyncMessage(this.doc.room, this.doc.sessionId, this.doc.remoteVersion, this.doc.edits);
     }
 
     /**
      * Send the final result of diffing document
      * @param syncMessage Message with edits
      */
-    private async sendSyncMessage(syncMessage: SyncMessage): Promise<void> {
+    private async synchronizeByMessage(syncMessage: SyncMessage): Promise<void> {
         let response = await fetchJson(Command.SYNC, syncMessage) as SyncMessage;
         this.timeSinceResponse = Date.now();
         this.applyServerEdits(response);
@@ -171,32 +170,16 @@ class Client {
      * @param payload The edits message
      */
     private applyServerEdits(payload: SyncMessage): void {
-        // Version checking not needed, as by the time response is returned, server is guaranteed to be on the same version
+        if (payload.lastReceivedVersion !== this.doc.localVersion) {
+            throw new Error(`Sync message versions invalid lastReceived: ${payload.lastReceivedVersion}, expected: ${this.doc.localVersion}`);
+        }
+
         removeConfirmedEdits(payload.lastReceivedVersion, this.doc.edits);
 
         // apply all valid edits
         for (let edit of payload.edits) {
-            this.applyEdit(edit);
+            applyEdit(this.getLocalCopy(), this.doc, edit, this.diffPatcher);
         }
-    }
-
-    /**
-     * Updates the document with the newest version of the edit
-     */
-    private applyEdit(edit: Edit): void {
-        if (edit.basedOnVersion !== this.doc.remoteVersion) {
-            console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${this.doc.remoteVersion}`);
-            return;
-        }
-
-        // Backup on the client not required as it in case it's request is lost state is still valid
-        // pefrormBackup(clientData);
-
-        this.diffPatcher.patch(this.doc.shadow, clone(edit.diff));
-        this.diffPatcher.patch(this.doc.localCopy, clone(edit.diff));
-
-        // Mark the edit version as the current one
-        this.doc.remoteVersion = edit.basedOnVersion;
     }
 
     private startOfflineMode(): void {
@@ -223,8 +206,7 @@ class Client {
                 break;
 
             } catch (error) {
-                // Reconnection attempt failed
-                await wait(timeBetweenRequests);
+                this.handleReconnectionAttemptError(error, timeBetweenRequests);
 
             } finally {
                 timeBetweenRequests += timeBetweenRequests / 5;
@@ -233,11 +215,26 @@ class Client {
     }
 
     /**
-     * 
-     * @param payload 
+     * Rethrows error, or starts offline mode, if network error occured
+     */
+    private async handleReconnectionAttemptError(error: Error, timeBetweenRequests: number): void {
+        // A fetch() promise will reject with a TypeError when a network error is encountered or CORS is misconfigured
+        if (error instanceof TypeError) {
+            await wait(timeBetweenRequests);
+        } else {
+            throw error;
+        }
+    }
+
+    /**
+     * Synchronize states between the client and server by performing a more complex merge mechanism,
+     * designed for offline mode reconnections
      */
     private reconnectionMerge(payload: SyncMessage): void {
         if (this.manualMergeRequired(payload)) {
+            payload.edits.forEach(edit => {
+                this.manualMerge(edit);
+            });
 
         } else {
             this.applyServerEdits(payload);
@@ -248,12 +245,40 @@ class Client {
         this.disableOfflineMode();
     }
 
+    private manualMerge(edit: Edit): void {
+        if (edit.basedOnVersion !== this.doc.remoteVersion) {
+            console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${this.doc.remoteVersion}`);
+            return;
+        }
+
+        let serverDoc = clone(this.doc);
+        this.diffPatcher.patch(serverDoc, clone(edit.diff));
+
+        let merged = this.userMerge(this.doc, serverDoc);
+
+        if (!merged) {
+            throw Error(`Expected merge to result in an object, but got ${merged}`);
+        }
+
+        this.doc.backup = clone(serverDoc);
+        this.doc.backupVersion = edit.basedOnVersion;
+        this.doc.remoteVersion = edit.basedOnVersion;
+        this.doc.shadow = clone(serverDoc);
+
+        // Only local copy is affected by the manual merge
+        // Shadow and backup have edits added automatically
+        this.doc.localCopy = clone(merged);
+
+        // Save the merged state just in case
+        this.offlineStore.storeData(this.doc);
+    }
+
     /**
-     * 
+     * Check if manual merge is required
      */
     private manualMergeRequired(payload: SyncMessage): boolean {
         return timeSince(this.timeSinceResponse) > 30_000 // After more than 30 seconds concider a merge
-            && payload.edits.length > 0;
+            && payload.edits.length > 0; // any edits were perfomed
     }
 
     /**
@@ -263,6 +288,17 @@ class Client {
         this.offlineStore.clearData();
         this.offline = false;
         this.timeSinceResponse = Date.now();
+    }
+
+    /**
+     * Returns a localCopy with error check
+     */
+    private getLocalCopy(): object {
+        if (this.doc.localCopy === null) {
+            throw new Error(`Incorrect documet ${this.doc}, localCopy should be present`);
+        }
+
+        return this.doc.localCopy;
     }
 
     /**

@@ -1,4 +1,4 @@
-import { ServerDocument } from "../types/document";
+import { Document } from "../types/document";
 
 /**
  * Interface for communicating with persistence layer, saving entities of type Document and State
@@ -14,12 +14,12 @@ interface DataAdapter {
     /**
      * Get the server side of document
      */
-    getData(sessionId: string): ServerDocument | null;
+    getData(sessionId: string): Document | null;
 
     /**
      * Store the server side of document
      */
-    storeData(sessionId: string, document: ServerDocument): void;
+    storeData(sessionId: string, document: Document): void;
 
 
     /**

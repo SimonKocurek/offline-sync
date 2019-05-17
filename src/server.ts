@@ -3,10 +3,8 @@ import { Config, DiffPatcher } from "jsondiffpatch";
 import Endpoint from "./types/endpoint";
 import Command from "./types/command";
 import { JoinMessage, SyncMessage, PingMessage } from "./types/message";
-import { clone } from "./util/functions";
-import Edit from "./types/edit";
-import { removeConfirmedEdits, pefrormBackup, performRoolback } from "./util/synchronize";
-import { ServerDocument, ClientDocument, Document } from "./types/document";
+import { removeConfirmedEdits, checkVersionNumbers, applyEdit, createSyncMessage } from "./util/synchronize";
+import { Document } from "./types/document";
 
 class Server {
 
@@ -44,7 +42,7 @@ class Server {
      * Joins a connection to a room and send the initial data
      * @param requestBody object with room identifier, or session Id
      */
-    private async joinConnection(payload: JoinMessage): Promise<ClientDocument | object> {
+    private async joinConnection(payload: JoinMessage): Promise<Document> {
         return this.generateClientData(payload.room);
     }
 
@@ -52,14 +50,15 @@ class Server {
      * Generates a client session
      * @param roomId Id of room to connect to
      */
-    private generateClientData(roomId: string): ClientDocument {
+    private generateClientData(roomId: string): Document {
         let sessionId = this.generateSessionId();
         let room = this.getRoom(roomId);
 
-        let document = new Document(roomId, sessionId, room);
+        let serverDocument = new Document(roomId, sessionId, room);
+        serverDocument.localCopy = null; // Local copy is stored in the room data
+        this.persistenceAdapter.storeData(sessionId, serverDocument);
 
-        this.persistenceAdapter.storeData(sessionId, new ServerDocument(document));
-        return new ClientDocument(document);
+        return new Document(roomId, sessionId, room);
     }
 
     /**
@@ -76,68 +75,15 @@ class Server {
             throw new Error(`Invalid session id received ${payload}`);
         }
 
-        this.checkVersionNumbers(payload.lastReceivedVersion, clientData);
+        checkVersionNumbers(payload.lastReceivedVersion, clientData);
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
 
         // apply all valid edits
         for (let edit of payload.edits) {
-            this.applyEdit(room, clientData, edit);
+            applyEdit(room, clientData, edit, this.diffPatcher);
         }
 
-        this.persistenceAdapter.storeData(payload.sessionId, clientData);
-        this.persistenceAdapter.storeRoom(payload.room, room);
-
-        return this.getServerDiff(room, clientData);
-    }
-
-    /**
-     * check the version numbers for lost packets
-     */
-    private checkVersionNumbers(lastReceivedVersion: number, clientData: ServerDocument): void {
-        if (lastReceivedVersion !== clientData.localVersion) {
-            // Something has gone wrong, try performing a rollback
-            if (lastReceivedVersion === clientData.backupVersion) {
-                performRoolback(clientData);
-            } else {
-                throw new Error(`Sync message versions invalid lastReceived: ${lastReceivedVersion}, backup: ${clientData.backupVersion}`);
-            }
-        }
-    }
-
-    /**
-     * Updates the document with the newest version of the edit
-     */
-    private applyEdit(room: object, clientData: ServerDocument, edit: Edit): void {
-        if (edit.basedOnVersion !== clientData.remoteVersion) {
-            console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${clientData.remoteVersion}`);
-            return;
-        }
-
-        pefrormBackup(clientData);
-
-        this.diffPatcher.patch(clientData.shadow, clone(edit.diff));
-        this.diffPatcher.patch(room, clone(edit.diff));
-
-        // Mark the edit version as the current one
-        clientData.remoteVersion = edit.basedOnVersion;
-    }
-
-    /**
-     * Create a syncMessage to update client state with the current server one
-     */
-    private getServerDiff(state: object, clientData: ServerDocument): SyncMessage {
-        let diff = this.diffPatcher.diff(clientData.shadow, state);
-        let basedOnVersion = clientData.localVersion;
-
-        // add the difference to the server's edit stack
-        if (diff) {
-            clientData.edits.push(new Edit(basedOnVersion, diff));
-            clientData.localVersion++;
-
-            this.diffPatcher.patch(clientData.shadow, clone(diff));
-        }
-
-        return new SyncMessage(clientData.room, clientData.sessionId, clientData.remoteVersion, clientData.edits);
+        return this.createSyncAndPersist(payload.room, payload.sessionId, room, clientData);
     }
 
     /**
@@ -153,11 +99,25 @@ class Server {
         if (!clientData) {
             throw new Error(`Invalid session id received ${payload}`);
         }
+        if (payload.lastReceivedVersion !== clientData.localVersion) {
+            throw new Error(`Ping message versions invalid lastReceived: ${payload.lastReceivedVersion}, expected: ${clientData.localVersion}`);
+        }
 
-        this.checkVersionNumbers(payload.lastReceivedVersion, clientData);
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
 
-        return this.getServerDiff(room, clientData);
+        return this.createSyncAndPersist(payload.room, payload.sessionId, room, clientData);
+    }
+
+    /**
+     * Create a sync message and save new versions and edits
+     */
+    private createSyncAndPersist(roomId: string, sessionId: string, room: object, data: Document): SyncMessage {
+        let SyncMessage = createSyncMessage(room, data, this.diffPatcher);
+
+        this.persistenceAdapter.storeData(sessionId, data);
+        this.persistenceAdapter.storeRoom(roomId, room);
+
+        return SyncMessage;
     }
 
     /**
