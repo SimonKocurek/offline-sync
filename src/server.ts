@@ -99,12 +99,8 @@ class Server {
         if (!clientData) {
             throw new Error(`Invalid session id received ${payload}`);
         }
-        if (payload.lastReceivedVersion !== clientData.localVersion) {
-            throw new Error(`Ping message versions invalid lastReceived: ${payload.lastReceivedVersion}, expected: ${clientData.localVersion}`);
-        }
 
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
-
         return this.createSyncAndPersist(payload.room, payload.sessionId, room, clientData);
     }
 

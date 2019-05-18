@@ -172,10 +172,6 @@ class Client {
     private applyServerEdits(payload: SyncMessage): void {
         let doc = this.getDoc();
 
-        if (payload.lastReceivedVersion !== doc.localVersion) {
-            throw new Error(`Sync message versions invalid lastReceived: ${payload.lastReceivedVersion}, expected: ${doc.localVersion}`);
-        }
-
         removeConfirmedEdits(payload.lastReceivedVersion, doc.edits);
 
         // apply all valid edits
