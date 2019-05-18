@@ -11,12 +11,7 @@ $ npm install --save offline-sync
 ```
 
 ```javascript
-const {
-  Client: Client,
-  Server: Server,
-  InMemoryDataAdapter: InMemoryDataAdapter,
-  LocalStorageStore: LocalStorageStore
-} = require('offline-sync');
+const offlineSync = require('offline-sync');
 ```
 
 ## Client usage
@@ -27,7 +22,7 @@ const {
 let roomId = 'shared_document';
 
 // Store for saving data in offline mode
-let store = new LocalStorageStore('local_storage_key');
+let store = new offlineSync.LocalStorageStore('local_storage_key');
 
 // On significant state conflicts this function is called to let user manually perform merge
 let onUserMerge = (clientState, serverState) => {
@@ -67,7 +62,7 @@ let endpointUrl = 'state/synchronization';
 
 ### Example
 ```javascript
-let client = new Client(roomId, store, onUserMerge, jsondiffpatchOptions, endpointUrl);
+let client = new offlineSync.Client(roomId, store, onUserMerge, jsondiffpatchOptions, endpointUrl);
 
 try {
   let document = client.initialize();
@@ -132,7 +127,7 @@ The structure of `Document` can change in time, however it is guaranteed to be o
 ### Options
 ```javascript
 // Data adapter for storing data on the server, some database adapter is expected here
-let adapter = new InMemoryDataAdapter();
+let adapter = new offlineSync.InMemoryDataAdapter();
 
 // https://github.com/benjamine/jsondiffpatch#options
 // Optional: defaults to empty object
@@ -145,7 +140,7 @@ let endpointUrl = 'state/synchronization';
 
 ### Example
 ```javascript
-let server = new Server(adapter, jsondiffpatchOptions, endpointUrl);
+let server = new offlineSync.Server(adapter, jsondiffpatchOptions, endpointUrl);
 // List of endpoints and their handlers that you can use in any http server implementation
 let endpoints = server.generatedEndpoints();
 
