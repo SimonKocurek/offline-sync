@@ -19,6 +19,7 @@
     "rootDir": "src",
     "outDir": "dist",
     "moduleResolution": "node",
+    "declaration": true
   },
   "exclude": [
     "node_modules",

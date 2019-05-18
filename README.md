@@ -6,13 +6,17 @@ Differential Synchronization based method with offline mode implemented, using d
 Typescript project or a support of es2017 is required.
 
 ## Installation
-For the typescript version:
-```bash
-$ npm install --save offline-sync-typed
-```
-For the es2017 version:
 ```bash
 $ npm install --save offline-sync
+```
+
+```javascript
+const {
+  Client: Client,
+  Server: Server,
+  InMemoryDataAdapter: InMemoryDataAdapter,
+  LocalStorageStore: LocalStorageStore
+} = require('offline-sync');
 ```
 
 ## Client usage
