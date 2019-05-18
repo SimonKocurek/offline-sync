@@ -25,7 +25,7 @@ let roomId = 'shared_document';
 let store = new offlineSync.LocalStorageStore('local_storage_key');
 
 // On significant state conflicts this function is called to let user manually perform merge
-let onUserMerge = (clientState, serverState) => {
+let onUserMerge = async (clientState, serverState) => {
   // show screen similiar to git's diffviewers
   // This can consist of 3 richText editors, like Quill
   let [leftEditor, middleEditor, rightEditor, submitButton] = showMergeScreen();

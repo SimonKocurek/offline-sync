@@ -37,7 +37,7 @@ class Client {
     constructor(
         private room: string,
         private offlineStore: LocalStore,
-        private userMerge: (local: object, server: object) => object,
+        private userMerge: (local: object, server: object) => Promise<object>,
         diffOptions: Config = {},
         private synchronizationUrl: string = ''
     ) {
@@ -200,7 +200,7 @@ class Client {
         while (true) {
             try {
                 let response = await fetchJson(Command.PING, {}) as SyncMessage;
-                this.reconnectionMerge(response);
+                await this.reconnectionMerge(response);
                 break;
 
             } catch (error) {
@@ -228,11 +228,11 @@ class Client {
      * Synchronize states between the client and server by performing a more complex merge mechanism,
      * designed for offline mode reconnections
      */
-    private reconnectionMerge(payload: SyncMessage): void {
+    private async reconnectionMerge(payload: SyncMessage): Promise<void> {
         if (this.manualMergeRequired(payload)) {
-            payload.edits.forEach(edit => {
-                this.manualMerge(edit);
-            });
+            for (let edit of payload.edits) {
+                await this.manualMerge(edit);
+            }
 
         } else {
             this.applyServerEdits(payload);
@@ -243,7 +243,7 @@ class Client {
         this.disableOfflineMode();
     }
 
-    private manualMerge(edit: Edit): void {
+    private async manualMerge(edit: Edit): Promise<void> {
         let doc = this.getDoc();
 
         if (edit.basedOnVersion !== doc.remoteVersion) {
@@ -254,7 +254,7 @@ class Client {
         let serverDoc = clone(doc);
         this.diffPatcher.patch(serverDoc, clone(edit.diff));
 
-        let merged = this.userMerge(doc, serverDoc);
+        let merged = await this.userMerge(doc, serverDoc);
 
         if (!merged) {
             throw Error(`Expected merge to result in an object, but got ${merged}`);
