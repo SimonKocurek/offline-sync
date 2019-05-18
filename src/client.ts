@@ -136,7 +136,7 @@ class Client {
             await this.synchronizeByMessage(syncMessage);
 
         } catch (error) {
-            this.handleSyncError(error);
+            await this.handleSyncError(error);
 
         } finally {
             this.syncing = false;
@@ -146,10 +146,10 @@ class Client {
     /**
      * Rethrows error, or starts offline mode, if network error occured
      */
-    private handleSyncError(error: Error): void {
+    private async handleSyncError(error: Error): Promise<void> {
         // A fetch() promise will reject with a TypeError when a network error is encountered or CORS is misconfigured
         if (error instanceof TypeError) {
-            this.startOfflineMode();
+            await this.startOfflineMode();
         } else {
             throw error;
         }
@@ -180,7 +180,7 @@ class Client {
         }
     }
 
-    private startOfflineMode(): void {
+    private async startOfflineMode(): Promise<void> {
         if (this.offline) {
             throw new Error("Offline mode already enabled");
         }
@@ -188,7 +188,7 @@ class Client {
         this.offline = true;
         this.offlineStore.storeData(this.getDoc());
 
-        this.startReconnectionChecking();
+        await this.startReconnectionChecking();
     }
 
     /**
@@ -254,6 +254,7 @@ class Client {
         let serverDoc = clone(doc);
         this.diffPatcher.patch(serverDoc, clone(edit.diff));
 
+        // Wait for user to merge
         let merged = await this.userMerge(doc, serverDoc);
 
         if (!merged) {

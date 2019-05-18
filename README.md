@@ -71,14 +71,17 @@ try {
   ...
   // After some document changes:
   await client.sync();
+  updateView(document);
   ...
   // document will now be synchronized between client and server
   // this synchronization is guaranteed, even after packets get dropped or connection lost for some time,
   // the sync will recover
   await client.sync();
+  updateView(document);
   ...
   // To fetch the server changes also use sync
   await client.sync();
+  updateView(document);
   ...
   // Await is needed to wait for syncing to finish, multiple syncs cannot run in parallel
   client.sync(); // runs
