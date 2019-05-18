@@ -180,6 +180,9 @@ class Client {
         }
     }
 
+    /**
+     * Store data and start offline mode by periodically pinging the server
+     */
     private async startOfflineMode(): Promise<void> {
         if (this.offline) {
             throw new Error("Offline mode already enabled");
@@ -243,6 +246,9 @@ class Client {
         this.disableOfflineMode();
     }
 
+    /**
+     * Handles the scenario, where manual merge by the user is performed
+     */
     private async manualMerge(edit: Edit): Promise<void> {
         let doc = this.getDoc();
 
