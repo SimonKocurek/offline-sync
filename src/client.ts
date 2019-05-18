@@ -25,12 +25,12 @@ class Client {
     private doc: Document | null = null;
 
     // Utility for calculating differences and patching document
-    private diffPatcher: DiffPatcher;
+    private readonly diffPatcher: DiffPatcher;
 
     /**
      * @param room Id of room, where users collaborate
      * @param diffOptions diffPatcher options
-     * @param userMerge Fnction that is called on user merge, takes local and server state and returns the merged one
+     * @param userMerge Function that is called on user merge, takes local and server state and returns the merged one
      * @param offlineStore Adapter for storing data in offline mode
      * @param synchronizationUrl Url appended to the server for syncrhonization
      */
@@ -242,7 +242,7 @@ class Client {
         }
 
         // Upload merged state
-        this.syncWithServer();
+        await this.syncWithServer();
         this.disableOfflineMode();
     }
 
@@ -284,8 +284,8 @@ class Client {
      * Check if manual merge is required
      */
     private manualMergeRequired(payload: SyncMessage): boolean {
-        return timeSince(this.timeSinceResponse) > 30_000 // After more than 30 seconds concider a merge
-            && payload.edits.length > 0; // any edits were perfomed
+        return timeSince(this.timeSinceResponse) > 30_000 // After more than 30 seconds conciser a merge
+            && payload.edits.length > 0; // any edits were performed
     }
 
     /**
@@ -304,7 +304,7 @@ class Client {
         let doc = this.getDoc();
 
         if (doc.localCopy === null) {
-            throw new Error(`Incorrect documet ${this.doc}, localCopy should be present`);
+            throw new Error(`Incorrect document ${this.doc}, localCopy should be present`);
         }
 
         return doc.localCopy;
@@ -332,6 +332,6 @@ class Client {
         return `${this.synchronizationUrl}/${command}`;
     }
 
-};
+}
 
 export default Client;

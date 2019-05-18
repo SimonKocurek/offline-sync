@@ -17,16 +17,16 @@ export function removeConfirmedEdits(lastReceivedVersion: number, edits: Edit[])
 /**
  * check the version numbers for lost packets
  */
-export function checkVersionNumbers(lastReceivedVersion: number, data: Document): void {
-    if (data.edits.length === 0) {
+export function checkVersionNumbers(lastReceivedVersion: number, receivedEdits: Edit[], data: Document): void {
+    if (receivedEdits.length === 0) {
         return;
     }
 
-    let firstEdit = data.edits[0];
+    let firstEdit = receivedEdits[0];
     if (lastReceivedVersion !== data.localVersion || firstEdit.basedOnVersion !== data.remoteVersion) {
         // Something has gone wrong, try performing a rollback
         if (lastReceivedVersion === data.backupVersion) {
-            performRoolback(data);
+            performRollback(data);
         } else {
             throw new Error(`Sync message versions invalid lastReceived: ${lastReceivedVersion}, backup: ${data.backupVersion}`);
         }
@@ -36,7 +36,7 @@ export function checkVersionNumbers(lastReceivedVersion: number, data: Document)
 /**
  * Rollback using backup
  */
-function performRoolback(data: Document): void {
+function performRollback(data: Document): void {
     // Restore shadow to the same version as on the other side
     data.localVersion = data.backupVersion;
     data.shadow = clone(data.backup);
@@ -64,13 +64,13 @@ export function applyEdit(localData: object, data: Document, edit: Edit, diffPat
     // Mark the edit version as the current one
     data.remoteVersion = edit.basedOnVersion + 1;
 
-    pefrormBackup(data);
+    performBackup(data);
 }
 
 /**
  * Saves the current shadow, before changing it
  */
-function pefrormBackup(data: Document): void {
+function performBackup(data: Document): void {
     data.backup = clone(data.shadow);
     data.backupVersion = data.remoteVersion;
 }

@@ -9,12 +9,12 @@ import { Document } from "./types/document";
 class Server {
 
     // Utility for calculating differences and patching document
-    private diffPatcher: DiffPatcher;
+    private readonly diffPatcher: DiffPatcher;
 
     /**
      * @param persistenceAdapter Adapter for communication with server's database for persistence
      * @param diffOptions diffPatcher options
-     * @param synchronizationUrl Url appended to the server for syncrhonization
+     * @param synchronizationUrl Url appended to the server for synchronization
      */
     constructor(private persistenceAdapter: DataAdapter, diffOptions: Config = {}, private synchronizationUrl: string = '') {
         diffOptions = Object.assign({
@@ -40,7 +40,7 @@ class Server {
 
     /**
      * Joins a connection to a room and send the initial data
-     * @param requestBody object with room identifier, or session Id
+     * @param payload object with room identifier, or session Id
      */
     private async joinConnection(payload: JoinMessage): Promise<Document> {
         return this.generateClientData(payload.room);
@@ -75,7 +75,7 @@ class Server {
             throw new Error(`Invalid session id received ${payload}`);
         }
 
-        checkVersionNumbers(payload.lastReceivedVersion, clientData);
+        checkVersionNumbers(payload.lastReceivedVersion, payload.edits, clientData);
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
 
         // apply all valid edits
