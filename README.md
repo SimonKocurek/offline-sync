@@ -25,7 +25,7 @@ let roomId = 'shared_document';
 let store = new offlineSync.LocalStorageStore('local_storage_key');
 
 // On significant state conflicts this function is called to let user manually perform merge
-let onUserMerge = async (clientState, serverState) => {
+let onUserMerge = (clientState, serverState) => {
   // show screen similiar to git's diffviewers
   // This can consist of 3 richText editors, like Quill
   let [leftEditor, middleEditor, rightEditor, submitButton] = showMergeScreen();
@@ -48,7 +48,7 @@ let onUserMerge = async (clientState, serverState) => {
     }, {once: true});
   });
 
-  return await mergeSubmit();
+  return mergeSubmit;
 };
 
 // https://github.com/benjamine/jsondiffpatch#options
@@ -146,7 +146,7 @@ let endpoints = server.generatedEndpoints();
 
 endpoints.forEach(endpoint => {
   // Example usage with Express
-  app.get(endpoint.url, async (request, response) => {
+  app.post(endpoint.url, async (request, response) => {
     try {
       // request.body has to be JSON
       let result = await endpoint.process(request.body);

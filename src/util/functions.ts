@@ -5,6 +5,7 @@
  */
 export async function fetchJson(input: RequestInfo, body: object): Promise<object> {
     let jsonInit = {
+        method: 'POST', // Required to have body
         headers: {
             'Accept': 'application/json',
             'Content-Type': 'application/json'
