@@ -160,7 +160,7 @@ class Client {
      * @param syncMessage Message with edits
      */
     private async synchronizeByMessage(syncMessage: SyncMessage): Promise<void> {
-        let response = await fetchJson(Command.SYNC, syncMessage) as SyncMessage;
+        let response = await fetchJson(this.endpointUrl(Command.SYNC), syncMessage) as SyncMessage;
         this.timeSinceResponse = Date.now();
         this.applyServerEdits(response);
     }
@@ -199,7 +199,7 @@ class Client {
 
         while (true) {
             try {
-                let response = await fetchJson(Command.PING, {}) as SyncMessage;
+                let response = await fetchJson(this.endpointUrl(Command.PING), {}) as SyncMessage;
                 await this.reconnectionMerge(response);
                 break;
 

@@ -135,7 +135,7 @@ let jsondiffpatchOptions = {};
 
 // Url on which commands will be syncrhonized (eg. http://server.com/state/synchronization/join)
 // Optional: defaults to empty string
-let endpointUrl = 'state/synchronization';
+let endpointUrl = '/state/synchronization';
 ```
 
 ### Example
