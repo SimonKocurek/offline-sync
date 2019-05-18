@@ -6,7 +6,7 @@ import Edit from "./edit";
  */
 export class Document {
 
-    constructor(public room: string, public sessionId: string, public state: object) {
+    constructor(public room: string, public sessionId: string, state: object) {
         this.localCopy = clone(state);
         this.shadow = clone(state);
         this.backup = clone(state);
