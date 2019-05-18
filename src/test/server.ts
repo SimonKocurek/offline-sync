@@ -1,10 +1,11 @@
+import Server from '../server';
+import InMemoryDataAdapter from '../data_adapter/in_memory_data_adapter';
 
-import { expect } from 'chai';
+describe('Server', () => {
 
-describe('Stack', () => {
-    it('can be initialized without an initializer', () => {
-        const s: number[] = [];
-        expect(s.length).to.equal(0);
+    it('Can be created and returns endpoints', () => {
+        let server = new Server(new InMemoryDataAdapter());
+        server.generatedEndpoints();
     });
-});
 
+});

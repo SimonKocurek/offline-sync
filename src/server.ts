@@ -64,7 +64,7 @@ class Server {
     /**
      * Applies the sent edits to the shadow and the server copy and returns new diffs
      */
-    async sync(payload: SyncMessage): Promise<SyncMessage> {
+    private async sync(payload: SyncMessage): Promise<SyncMessage> {
         let room = this.persistenceAdapter.getRoom(payload.room);
         let clientData = this.persistenceAdapter.getData(payload.sessionId);
 
