@@ -1,6 +1,6 @@
 {
   "name": "offline-sync",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Real time collaborative editing for JSON objects with offline mode",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
