@@ -5,7 +5,7 @@ import { Document } from '../types/document';
 describe('Client', () => {
 
     it('can be created', async () => {
-        let client = new Client('', new StoreMock(), (a) => a);
+        let client = new Client('', new StoreMock(), (a) => new Promise((resolve) => resolve(a)));
         await client.sync();
     });
 
