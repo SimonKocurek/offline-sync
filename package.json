@@ -1,8 +1,9 @@
 {
   "name": "offline-sync",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Real time collaborative editing for JSON objects with offline mode",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "test": "mocha --require ts-node/register src/test/**/*.ts",
     "build": "tsc"
