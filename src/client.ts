@@ -22,7 +22,7 @@ class Client {
     private timeSinceResponse: number = -1;
 
     // Document itself
-    private doc: Document;
+    private doc: Document | null = null;
 
     // Utility for calculating differences and patching document
     private diffPatcher: DiffPatcher;
@@ -30,7 +30,7 @@ class Client {
     /**
      * @param room Id of room, where users collaborate
      * @param diffOptions diffPatcher options
-     * @param userMerge 
+     * @param userMerge Fnction that is called on user merge, takes local and server state and returns the merged one
      * @param offlineStore Adapter for storing data in offline mode
      * @param synchronizationUrl Url appended to the server for syncrhonization
      */
@@ -114,7 +114,7 @@ class Client {
 
         if (this.offline) {
             // We can be in offline mode only after we already have doc set
-            this.offlineStore.storeData(this.doc);
+            this.offlineStore.storeData(this.getDoc());
 
         } else if (this.syncing) {
             console.debug("Sync is already in progress you must wait for it to finish");
@@ -131,7 +131,7 @@ class Client {
         try {
             this.syncing = true;
 
-            let syncMessage = createSyncMessage(this.getLocalCopy(), this.doc, this.diffPatcher);
+            let syncMessage = createSyncMessage(this.getLocalCopy(), this.getDoc(), this.diffPatcher);
             // Syncing needs to wait here for the response from the server
             await this.synchronizeByMessage(syncMessage);
 
@@ -170,15 +170,17 @@ class Client {
      * @param payload The edits message
      */
     private applyServerEdits(payload: SyncMessage): void {
-        if (payload.lastReceivedVersion !== this.doc.localVersion) {
-            throw new Error(`Sync message versions invalid lastReceived: ${payload.lastReceivedVersion}, expected: ${this.doc.localVersion}`);
+        let doc = this.getDoc();
+
+        if (payload.lastReceivedVersion !== doc.localVersion) {
+            throw new Error(`Sync message versions invalid lastReceived: ${payload.lastReceivedVersion}, expected: ${doc.localVersion}`);
         }
 
-        removeConfirmedEdits(payload.lastReceivedVersion, this.doc.edits);
+        removeConfirmedEdits(payload.lastReceivedVersion, doc.edits);
 
         // apply all valid edits
         for (let edit of payload.edits) {
-            applyEdit(this.getLocalCopy(), this.doc, edit, this.diffPatcher);
+            applyEdit(this.getLocalCopy(), doc, edit, this.diffPatcher);
         }
     }
 
@@ -188,7 +190,7 @@ class Client {
         }
 
         this.offline = true;
-        this.offlineStore.storeData(this.doc);
+        this.offlineStore.storeData(this.getDoc());
 
         this.startReconnectionChecking();
     }
@@ -206,7 +208,7 @@ class Client {
                 break;
 
             } catch (error) {
-                this.handleReconnectionAttemptError(error, timeBetweenRequests);
+                await this.handleReconnectionAttemptError(error, timeBetweenRequests);
 
             } finally {
                 timeBetweenRequests += timeBetweenRequests / 5;
@@ -217,7 +219,7 @@ class Client {
     /**
      * Rethrows error, or starts offline mode, if network error occured
      */
-    private async handleReconnectionAttemptError(error: Error, timeBetweenRequests: number): void {
+    private async handleReconnectionAttemptError(error: Error, timeBetweenRequests: number): Promise<void> {
         // A fetch() promise will reject with a TypeError when a network error is encountered or CORS is misconfigured
         if (error instanceof TypeError) {
             await wait(timeBetweenRequests);
@@ -246,31 +248,33 @@ class Client {
     }
 
     private manualMerge(edit: Edit): void {
-        if (edit.basedOnVersion !== this.doc.remoteVersion) {
-            console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${this.doc.remoteVersion}`);
+        let doc = this.getDoc();
+
+        if (edit.basedOnVersion !== doc.remoteVersion) {
+            console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${doc.remoteVersion}`);
             return;
         }
 
-        let serverDoc = clone(this.doc);
+        let serverDoc = clone(doc);
         this.diffPatcher.patch(serverDoc, clone(edit.diff));
 
-        let merged = this.userMerge(this.doc, serverDoc);
+        let merged = this.userMerge(doc, serverDoc);
 
         if (!merged) {
             throw Error(`Expected merge to result in an object, but got ${merged}`);
         }
 
-        this.doc.backup = clone(serverDoc);
-        this.doc.backupVersion = edit.basedOnVersion;
-        this.doc.remoteVersion = edit.basedOnVersion;
-        this.doc.shadow = clone(serverDoc);
+        doc.backup = clone(serverDoc);
+        doc.backupVersion = edit.basedOnVersion;
+        doc.remoteVersion = edit.basedOnVersion;
+        doc.shadow = clone(serverDoc);
 
         // Only local copy is affected by the manual merge
         // Shadow and backup have edits added automatically
-        this.doc.localCopy = clone(merged);
+        doc.localCopy = clone(merged);
 
         // Save the merged state just in case
-        this.offlineStore.storeData(this.doc);
+        this.offlineStore.storeData(doc);
     }
 
     /**
@@ -294,11 +298,28 @@ class Client {
      * Returns a localCopy with error check
      */
     private getLocalCopy(): object {
-        if (this.doc.localCopy === null) {
+        let doc = this.getDoc();
+
+        if (doc.localCopy === null) {
             throw new Error(`Incorrect documet ${this.doc}, localCopy should be present`);
         }
 
-        return this.doc.localCopy;
+        return doc.localCopy;
+    }
+
+    /**
+     * Returns a document with error check
+     */
+    private getDoc(): Document {
+        if (this.doc === null) {
+            if (this.initialized) {
+                throw new Error("Client has not been initialized, please call initialize().");
+            } else {
+                throw new Error("Document is null, but expected non-null value, on initialized client");
+            }
+        }
+
+        return this.doc;
     }
 
     /**

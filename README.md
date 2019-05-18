@@ -5,7 +5,7 @@ Differential Synchronization based method with offline mode implemented, using d
 
 Typescript project or a support of es2017 is required.
 
-## Npm
+## Installation
 For the typescript version:
 ```bash
 $ npm install --save offline-sync-typed
@@ -16,17 +16,54 @@ $ npm install --save offline-sync
 ```
 
 ## Client usage
+
+### Options
 ```javascript
 // Id among which state is synchronized between clients
 let roomId = 'shared_document';
+
 // Store for saving data in offline mode
 let store = new LocalStorageStore('local_storage_key');
-// https://github.com/benjamine/jsondiffpatch#options *Optional defaults to empty object
-let jsondiffpatchOptions = {};
-// Url on which commands will be syncrhonized (eg. http://server.com/state/synchronization/join) *Optional, defaults to empty string
-let endpointUrl = 'state/synchronization';
 
-let client = new Client(roomId, store, jsondiffpatchOptions, endpointUrl);
+// On significant state conflicts this function is called to let user manually perform merge
+let onUserMerge = (clientState, serverState) => {
+  // show screen similiar to git's diffviewers
+  // This can consist of 3 richText editors, like Quill
+  let [leftEditor, middleEditor, rightEditor, submitButton] = showMergeScreen();
+
+  leftEditor.setContents(clientState);
+  leftEditor.editor.disable(); // make read-only
+
+  // This is where the merging happens
+  middleEditor.setContents(serverState);
+
+  rightEditor.setContents(serverState);
+  rightEditor.editor.disable(); // make read-only
+
+  // Wait for submit click
+  let mergeSubmit = new Promise((resolve, reject) => {
+    submitButton.addEventListener('click', event => {
+      // On click take a snapshot of edited content
+      let mergedState = middleEditor.getContents();
+      resolve(mergedState);
+    }, {once: true});
+  });
+
+  return await mergeSubmit();
+};
+
+// https://github.com/benjamine/jsondiffpatch#options
+// Optional: defaults to empty object
+let jsondiffpatchOptions = {};
+
+// Url on which commands will be syncrhonized (eg. http://server.com/state/synchronization/join)
+// Optional: defaults to empty string
+let endpointUrl = 'state/synchronization';
+```
+
+### Example
+```javascript
+let client = new Client(roomId, store, onUserMerge, jsondiffpatchOptions, endpointUrl);
 
 try {
   let document = client.initialize();
@@ -48,8 +85,8 @@ try {
   client.sync(); // runs
   client.sync(); // prints to console that syncing is already in progress
 
-} catch(connectingError) {
-  console.error(connectingError);
+} catch(error) {
+  console.error(error);
 }
 ```
 
@@ -86,15 +123,24 @@ interface LocalStore {
 ```
 The structure of `Document` can change in time, however it is guaranteed to be of `object` type.
 
-## Server usage
+## Server
+
+### Options
 ```javascript
 // Data adapter for storing data on the server, some database adapter is expected here
 let adapter = new InMemoryDataAdapter();
-// https://github.com/benjamine/jsondiffpatch#options *Optional defaults to empty object
-let jsondiffpatchOptions = {};
-// Url on which commands will be syncrhonized (eg. http://server.com/state/synchronization/join) *Optional, defaults to empty string
-let endpointUrl = 'state/synchronization';
 
+// https://github.com/benjamine/jsondiffpatch#options
+// Optional: defaults to empty object
+let jsondiffpatchOptions = {};
+
+// Url on which commands will be syncrhonized (eg. http://server.com/state/synchronization/join)
+// Optional: defaults to empty string
+let endpointUrl = 'state/synchronization';
+```
+
+### Usage
+```javascript
 let server = new Server(adapter, jsondiffpatchOptions, endpointUrl);
 // List of endpoints and their handlers that you can use in any http server implementation
 let endpoints = server.generatedEndpoints();
@@ -113,7 +159,6 @@ endpoints.forEach(endpoint => {
     }
   });
 });
-
 ```
 
 ### Data Adapter Interface
