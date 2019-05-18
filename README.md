@@ -65,7 +65,7 @@ let endpointUrl = 'state/synchronization';
 let client = new offlineSync.Client(roomId, store, onUserMerge, jsondiffpatchOptions, endpointUrl);
 
 try {
-  let document = client.initialize();
+  let document = await client.initialize();
 
   // change the document JSON object any way you want
   ...
