@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Real time collaborative editing for JSON objects with offline mode",
   "scripts": {
-    "test": "mocha --require ts-node/register test/**/*.ts",
+    "test": "mocha --require ts-node/register src/test/**/*.ts",
     "build": "tsc"
   },
   "dependencies": {

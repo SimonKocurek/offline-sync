@@ -37,3 +37,10 @@ export function clone(object: object): object {
 export function timeSince(timestamp: number): number {
     return Date.now() - timestamp;
 }
+
+/**
+ * Object exists and is not empty
+ */
+export function isEmpty(obj: object | Array<any> | null): boolean {
+    return !obj || Object.keys(obj).length === 0;
+}

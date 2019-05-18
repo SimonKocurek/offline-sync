@@ -1,4 +1,4 @@
-import { clone } from "./functions";
+import { clone, isEmpty } from "./functions";
 import Edit from "../types/edit";
 import { Document } from "../types/document";
 import { SyncMessage } from "../types/message";
@@ -9,7 +9,7 @@ import { DiffPatcher } from "jsondiffpatch";
  * Remove all edits that were seen by the other side
  */
 export function removeConfirmedEdits(lastReceivedVersion: number, edits: Edit[]): void {
-    while (edits.length > 0 && lastReceivedVersion >= edits[0].basedOnVersion) {
+    while (edits.length > 0 && lastReceivedVersion > edits[0].basedOnVersion) {
         edits.shift(); // remove the edit
     }
 }
@@ -18,7 +18,12 @@ export function removeConfirmedEdits(lastReceivedVersion: number, edits: Edit[])
  * check the version numbers for lost packets
  */
 export function checkVersionNumbers(lastReceivedVersion: number, data: Document): void {
-    if (lastReceivedVersion !== data.localVersion) {
+    if (data.edits.length === 0) {
+        return;
+    }
+
+    let firstEdit = data.edits[0];
+    if (lastReceivedVersion !== data.localVersion || firstEdit.basedOnVersion !== data.remoteVersion) {
         // Something has gone wrong, try performing a rollback
         if (lastReceivedVersion === data.backupVersion) {
             performRoolback(data);
@@ -45,16 +50,19 @@ function performRoolback(data: Document): void {
  * Updates the document with the newest version of the edit
  */
 export function applyEdit(localData: object, data: Document, edit: Edit, diffPatcher: DiffPatcher): void {
-    if (edit.basedOnVersion !== data.remoteVersion) {
-        console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${data.remoteVersion}`);
+    if (edit.basedOnVersion < data.remoteVersion) {
+        // Skip already applied edits
         return;
     }
+    if (edit.basedOnVersion > data.remoteVersion) {
+        throw new Error(`Edit ${edit} has bad basedOnVersion, expected ${data.remoteVersion}`);
+    }
 
-    diffPatcher.patch(data.shadow, clone(edit.diff));
-    diffPatcher.patch(localData, clone(edit.diff));
+    diffPatcher.patch(data.shadow, edit.diff);
+    diffPatcher.patch(localData, edit.diff);
 
     // Mark the edit version as the current one
-    data.remoteVersion = edit.basedOnVersion;
+    data.remoteVersion = edit.basedOnVersion + 1;
 
     pefrormBackup(data);
 }
@@ -75,11 +83,11 @@ export function createSyncMessage(localData: object, data: Document, diffPatcher
     let basedOnVersion = data.localVersion;
 
     // add the difference to the edit stack
-    if (diff) {
+    if (diff && !isEmpty(diff)) {
         data.edits.push(new Edit(basedOnVersion, diff));
         data.localVersion++;
 
-        diffPatcher.patch(data.shadow, clone(diff));
+        diffPatcher.patch(data.shadow, diff);
     }
 
     return new SyncMessage(data.room, data.sessionId, data.remoteVersion, data.edits);

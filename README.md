@@ -123,7 +123,7 @@ interface LocalStore {
 ```
 The structure of `Document` can change in time, however it is guaranteed to be of `object` type.
 
-## Server
+## Server Usage
 
 ### Options
 ```javascript
@@ -139,7 +139,7 @@ let jsondiffpatchOptions = {};
 let endpointUrl = 'state/synchronization';
 ```
 
-### Usage
+### Example
 ```javascript
 let server = new Server(adapter, jsondiffpatchOptions, endpointUrl);
 // List of endpoints and their handlers that you can use in any http server implementation
