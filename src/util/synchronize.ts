@@ -69,7 +69,7 @@ export function applyEdit(localData: object, data: Document, edit: Edit, diffPat
     console.log("New shadow", JSON.stringify(data.shadow), "data", JSON.stringify(localData), "version", data.remoteVersion);
 
     performBackup(data);
-    console.log("Edit applied, new data:", data);
+    console.log("Edit applied, new data:", JSON.stringify(data));
 }
 
 /**
