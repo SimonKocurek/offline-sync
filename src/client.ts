@@ -41,6 +41,16 @@ class Client {
         diffOptions: Config = {},
         private synchronizationUrl: string = ''
     ) {
+        diffOptions = Object.assign({
+            arrays: {
+                detectMove: false
+            },
+            textDiff: {
+                minLength: 10
+            },
+            cloneDiffValues: true
+        }, diffOptions || {});
+
         this.diffPatcher = new DiffPatcher(diffOptions);
     }
 
@@ -73,6 +83,7 @@ class Client {
      */
     private loadStoredData(): Document {
         let data = this.offlineStore.getData();
+        console.log("Loaded store data", data);
 
         if (!data || data.room !== this.room) {
             throw new Error(`Invalid data stored ${data} expected to be for room ${this.room}.`);
@@ -88,7 +99,10 @@ class Client {
         // Throws error if connection fails
         try {
             this.syncing = true;
-            return await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as Document;
+            const newDocument = await fetchJson(this.endpointUrl(Command.JOIN), new JoinMessage(this.room)) as Document;
+            console.log("Fetched new document", newDocument);
+
+            return newDocument;
         } finally {
             this.syncing = false;
         }
@@ -115,9 +129,10 @@ class Client {
         if (this.offline) {
             // We can be in offline mode only after we already have doc set
             this.offlineStore.storeData(this.getDoc());
+            console.log("Stored data locally", this.getDoc());
 
         } else if (this.syncing) {
-            console.debug("Sync is already in progress you must wait for it to finish");
+            console.log("Sync is already in progress you must wait for it to finish");
 
         } else {
             await this.syncWithServer();
@@ -132,10 +147,13 @@ class Client {
             this.syncing = true;
 
             let syncMessage = createSyncMessage(this.getLocalCopy(), this.getDoc(), this.diffPatcher);
+            console.log("Sending sync message", syncMessage.lastReceivedVersion, JSON.stringify(syncMessage.edits));
+
             // Syncing needs to wait here for the response from the server
             await this.synchronizeByMessage(syncMessage);
 
         } catch (error) {
+            console.log("Syncing failed with error", error);
             await this.handleSyncError(error);
 
         } finally {
@@ -162,6 +180,7 @@ class Client {
     private async synchronizeByMessage(syncMessage: SyncMessage): Promise<void> {
         let response = await fetchJson(this.endpointUrl(Command.SYNC), syncMessage) as SyncMessage;
         this.timeSinceResponse = Date.now();
+        console.log("Received synchronization response", response.lastReceivedVersion, JSON.stringify(response.edits));
         this.applyServerEdits(response);
     }
 
@@ -190,6 +209,7 @@ class Client {
 
         this.offline = true;
         this.offlineStore.storeData(this.getDoc());
+        console.log("Started offline mode");
 
         await this.startReconnectionChecking();
     }
@@ -202,6 +222,7 @@ class Client {
 
         while (true) {
             try {
+                console.log("Pinging...");
                 let response = await fetchJson(this.endpointUrl(Command.PING), {}) as SyncMessage;
                 await this.reconnectionMerge(response);
                 break;
@@ -253,7 +274,7 @@ class Client {
         let doc = this.getDoc();
 
         if (edit.basedOnVersion !== doc.remoteVersion) {
-            console.warn(`Edit ${edit} ignored due to bad basedOnVersion, expected ${doc.remoteVersion}`);
+            console.warn("Edit", edit, "ignored due to bad basedOnVersion, expected", doc.remoteVersion);
             return;
         }
 

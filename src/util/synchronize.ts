@@ -10,7 +10,8 @@ import { DiffPatcher } from "jsondiffpatch";
  */
 export function removeConfirmedEdits(lastReceivedVersion: number, edits: Edit[]): void {
     while (edits.length > 0 && lastReceivedVersion > edits[0].basedOnVersion) {
-        edits.shift(); // remove the edit
+        const removed = edits.shift();
+        console.log("Removed confirmed edit", JSON.stringify(removed));
     }
 }
 
@@ -26,6 +27,7 @@ export function checkVersionNumbers(lastReceivedVersion: number, receivedEdits: 
     if (lastReceivedVersion !== data.localVersion || firstEdit.basedOnVersion !== data.remoteVersion) {
         // Something has gone wrong, try performing a rollback
         if (lastReceivedVersion === data.backupVersion) {
+            console.log("Performing backup due to version missmatch", lastReceivedVersion, "With received edits", receivedEdits, data);
             performRollback(data);
         } else {
             throw new Error(`Sync message versions invalid lastReceived: ${lastReceivedVersion}, backup: ${data.backupVersion}`);
@@ -52,6 +54,7 @@ function performRollback(data: Document): void {
 export function applyEdit(localData: object, data: Document, edit: Edit, diffPatcher: DiffPatcher): void {
     if (edit.basedOnVersion < data.remoteVersion) {
         // Skip already applied edits
+        console.log("Skipping already applied edit", edit, "For data", data);
         return;
     }
     if (edit.basedOnVersion > data.remoteVersion) {
@@ -63,8 +66,10 @@ export function applyEdit(localData: object, data: Document, edit: Edit, diffPat
 
     // Mark the edit version as the current one
     data.remoteVersion = edit.basedOnVersion + 1;
+    console.log("New shadow", JSON.stringify(data.shadow), "data", JSON.stringify(localData), "version", data.remoteVersion);
 
     performBackup(data);
+    console.log("Edit applied, new data:", data);
 }
 
 /**
@@ -88,6 +93,7 @@ export function createSyncMessage(localData: object, data: Document, diffPatcher
         data.localVersion++;
 
         diffPatcher.patch(data.shadow, diff);
+        console.log("Added diff to the edit stack, localVersion", data.localVersion, "Diff", JSON.stringify(diff));
     }
 
     return new SyncMessage(data.room, data.sessionId, data.remoteVersion, data.edits);

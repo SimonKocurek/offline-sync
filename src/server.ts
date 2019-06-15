@@ -22,6 +22,10 @@ class Server {
             arrays: {
                 detectMove: false
             },
+            textDiff: {
+                minLength: 10
+            },
+            cloneDiffValues: true
         }, diffOptions || {});
 
         this.diffPatcher = new DiffPatcher(diffOptions);
@@ -58,7 +62,9 @@ class Server {
         serverDocument.localCopy = null; // Local copy is stored in the room data
         this.persistenceAdapter.storeData(sessionId, serverDocument);
 
-        return new Document(roomId, sessionId, room);
+        let clientData = new Document(roomId, sessionId, room);
+        console.log("Generated client data", clientData);
+        return clientData;
     }
 
     /**
@@ -74,6 +80,7 @@ class Server {
         if (!clientData) {
             throw new Error(`Invalid session id received ${payload}`);
         }
+        console.log("Syncing room, ", JSON.stringify(room), "with client data", JSON.stringify(clientData));
 
         checkVersionNumbers(payload.lastReceivedVersion, payload.edits, clientData);
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
@@ -99,6 +106,7 @@ class Server {
         if (!clientData) {
             throw new Error(`Invalid session id received ${payload}`);
         }
+        console.log("Received ping", JSON.stringify(room), "with client data", JSON.stringify(clientData));
 
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
         return this.createSyncAndPersist(payload.room, payload.sessionId, room, clientData);
@@ -108,12 +116,13 @@ class Server {
      * Create a sync message and save new versions and edits
      */
     private createSyncAndPersist(roomId: string, sessionId: string, room: object, data: Document): SyncMessage {
-        let SyncMessage = createSyncMessage(room, data, this.diffPatcher);
+        let syncMessage = createSyncMessage(room, data, this.diffPatcher);
 
         this.persistenceAdapter.storeData(sessionId, data);
         this.persistenceAdapter.storeRoom(roomId, room);
 
-        return SyncMessage;
+        console.log("Returning sync message", syncMessage.lastReceivedVersion, JSON.stringify(syncMessage.edits));
+        return syncMessage;
     }
 
     /**
