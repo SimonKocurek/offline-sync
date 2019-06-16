@@ -229,6 +229,7 @@ class Client {
                 break;
 
             } catch (error) {
+                console.error(error);
                 await wait(timeBetweenRequests);
 
             } finally {

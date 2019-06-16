@@ -5,6 +5,7 @@ import Command from "./types/command";
 import { JoinMessage, SyncMessage, PingMessage } from "./types/message";
 import { removeConfirmedEdits, checkVersionNumbers, applyEdit, createSyncMessage } from "./util/synchronize";
 import { Document } from "./types/document";
+import { threadId } from "worker_threads";
 
 class Server {
 
@@ -71,15 +72,17 @@ class Server {
      * Applies the sent edits to the shadow and the server copy and returns new diffs
      */
     private async sync(payload: SyncMessage): Promise<SyncMessage> {
-        let room = this.persistenceAdapter.getRoom(payload.room);
-        let clientData = this.persistenceAdapter.getData(payload.sessionId);
-
-        if (!room) {
+        if (!this.persistenceAdapter.hasRoom(payload.room)) {
             throw new Error(`Invalid room id received ${payload}`);
         }
-        if (!clientData) {
+
+        if (!this.persistenceAdapter.hasData(payload.sessionId)) {
             throw new Error(`Invalid session id received ${payload}`);
         }
+
+        let room = this.persistenceAdapter.getRoom(payload.room)!!;
+        let clientData = this.persistenceAdapter.getData(payload.sessionId)!!;
+
         console.log("Syncing room, ", JSON.stringify(room), "with client data", JSON.stringify(clientData));
 
         checkVersionNumbers(payload.lastReceivedVersion, payload.edits, clientData);
@@ -97,15 +100,16 @@ class Server {
      * Receive ping message and return diffs that happened in the meantime
      */
     private receivePing(payload: PingMessage): SyncMessage {
-        let room = this.persistenceAdapter.getRoom(payload.room);
-        let clientData = this.persistenceAdapter.getData(payload.sessionId);
-
-        if (!room) {
+        if (!this.persistenceAdapter.hasRoom(payload.room)) {
             throw new Error(`Invalid room id received ${payload}`);
         }
-        if (!clientData) {
+        if (!this.persistenceAdapter.hasData(payload.sessionId)) {
             throw new Error(`Invalid session id received ${payload}`);
         }
+
+        let room = this.persistenceAdapter.getRoom(payload.room)!!;
+        let clientData = this.persistenceAdapter.getData(payload.sessionId)!!;
+
         console.log("Received ping", JSON.stringify(room), "with client data", JSON.stringify(clientData));
 
         removeConfirmedEdits(payload.lastReceivedVersion, clientData.edits);
