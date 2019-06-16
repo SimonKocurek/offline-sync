@@ -3,7 +3,7 @@ import Command from "./types/command";
 import LocalStore from "./offline_store/client_offline_store";
 import { Document } from "./types/document";
 import { fetchJson,  wait, timeSince, clone } from "./util/functions";
-import { JoinMessage, SyncMessage } from "./types/message";
+import { JoinMessage, SyncMessage, PingMessage } from "./types/message";
 import { removeConfirmedEdits, createSyncMessage, applyEdit } from "./util/synchronize";
 import Edit from "./types/edit";
 
@@ -219,11 +219,12 @@ class Client {
      */
     private async startReconnectionChecking(): Promise<void> {
         let timeBetweenRequests = 1000;
+        let pingMessage = new PingMessage(this.room, this.getDoc().sessionId, this.getDoc().remoteVersion);
 
         while (true) {
             try {
                 console.log("Pinging...");
-                let response = await fetchJson(this.endpointUrl(Command.PING), {}) as SyncMessage;
+                let response = await fetchJson(this.endpointUrl(Command.PING), pingMessage) as SyncMessage;
                 await this.reconnectionMerge(response);
                 break;
 
