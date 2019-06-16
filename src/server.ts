@@ -5,7 +5,6 @@ import Command from "./types/command";
 import { JoinMessage, SyncMessage, PingMessage } from "./types/message";
 import { removeConfirmedEdits, checkVersionNumbers, applyEdit, createSyncMessage } from "./util/synchronize";
 import { Document } from "./types/document";
-import { threadId } from "worker_threads";
 
 class Server {
 
