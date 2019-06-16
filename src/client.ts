@@ -47,7 +47,8 @@ class Client {
             },
             textDiff: {
                 minLength: 10
-            }
+            },
+            cloneDiffValues: true
         }, diffOptions || {});
 
         this.diffPatcher = new DiffPatcher(diffOptions);
