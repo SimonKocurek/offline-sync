@@ -63,7 +63,7 @@ class Server {
         this.persistenceAdapter.storeData(sessionId, serverDocument);
 
         let clientData = new Document(roomId, sessionId, room);
-        console.log("Generated client data", clientData);
+        console.log("Generated client data", JSON.stringify(clientData));
         return clientData;
     }
 
