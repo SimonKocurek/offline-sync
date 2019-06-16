@@ -84,6 +84,7 @@ function performBackup(data: Document): void {
  * Create a syncMessage to update state
  */
 export function createSyncMessage(localData: object, data: Document, diffPatcher: DiffPatcher): SyncMessage {
+    console.log("Creating diff, shadow:", data.shadow, "localData:", localData);
     let diff = diffPatcher.diff(data.shadow, localData);
     let basedOnVersion = data.localVersion;
 

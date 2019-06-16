@@ -1,6 +1,5 @@
 import DataAdapter from "./server_data_adapter";
 import { Document } from "../types/document";
-import { clone } from "../util/functions";
 
 /**
  * A dumb in-memory data store. Do not use in production. Only for demo purposes.
@@ -16,7 +15,7 @@ class InMemoryDataAdapter implements DataAdapter {
     }
 
     public getData(sessionId: string): Document | null {
-        return clone(this.data[sessionId]) as Document | null;
+        return this.data[sessionId];
     }
 
     public storeData(sessionId: string, data: Document): void {
@@ -28,7 +27,7 @@ class InMemoryDataAdapter implements DataAdapter {
     }
 
     public getRoom(roomId: string): object | null {
-        return clone(this.rooms[roomId]);
+        return this.rooms[roomId];
     }
 
     public storeRoom(roomId: string, document: object): void {
