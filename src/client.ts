@@ -228,23 +228,11 @@ class Client {
                 break;
 
             } catch (error) {
-                await this.handleReconnectionAttemptError(error, timeBetweenRequests);
+                await wait(timeBetweenRequests);
 
             } finally {
                 timeBetweenRequests += timeBetweenRequests / 5;
             }
-        }
-    }
-
-    /**
-     * Rethrows error, or starts offline mode, if network error occured
-     */
-    private async handleReconnectionAttemptError(error: Error, timeBetweenRequests: number): Promise<void> {
-        // A fetch() promise will reject with a TypeError when a network error is encountered or CORS is misconfigured
-        if (error instanceof TypeError) {
-            await wait(timeBetweenRequests);
-        } else {
-            throw error;
         }
     }
 
